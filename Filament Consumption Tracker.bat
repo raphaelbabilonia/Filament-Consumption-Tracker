@@ -1,0 +1,6 @@
+@echo off
+echo Installing/Updating requirements...
+python -m pip install -r requirements.txt
+echo Starting Filament Consumption Tracker...
+python main.py
+pause
