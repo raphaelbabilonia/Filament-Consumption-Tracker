@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Database files
+*.db
+*.db-journal
+
+# Logs
+*.log
+
+# Local configuration
+.env
+config.local.ini
+
+# Generated reports and exports
+exports/
+reports/
+*.csv
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Documentation builds
+docs/_build/
+
+# Backup files
+*.bak
