@@ -89,6 +89,53 @@ class PrintJob(Base):
         return f"<PrintJob(project_name='{self.project_name}', date='{self.date}')>"
 
 
+class FilamentIdealInventory(Base):
+    """Table for storing ideal inventory quantities for filament types."""
+    __tablename__ = 'filament_ideal_inventory'
+    
+    id = Column(Integer, primary_key=True)
+    type = Column(String(20), nullable=False)  # PLA, ABS, etc.
+    color = Column(String(50), nullable=False)
+    brand = Column(String(50), nullable=False)
+    ideal_quantity = Column(Float, nullable=False)  # in grams
+    
+    def __repr__(self):
+        return f"<FilamentIdealInventory(type='{self.type}', color='{self.color}', brand='{self.brand}', ideal_quantity={self.ideal_quantity})>"
+
+
+class FilamentLinkGroup(Base):
+    """Table for storing filament link groups."""
+    __tablename__ = 'filament_link_groups'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)  # Name for the group, e.g., "White PLA variants"
+    description = Column(Text)  # Optional description
+    ideal_quantity = Column(Float, default=0)  # Ideal quantity for the entire group
+    
+    # Relationship with filament links
+    filament_links = relationship("FilamentLink", back_populates="group", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<FilamentLinkGroup(name='{self.name}', ideal_quantity={self.ideal_quantity})>"
+
+
+class FilamentLink(Base):
+    """Table for storing linked filaments within a group."""
+    __tablename__ = 'filament_links'
+    
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey('filament_link_groups.id'), nullable=False)
+    type = Column(String(20), nullable=False)  # PLA, ABS, etc.
+    color = Column(String(50), nullable=False)
+    brand = Column(String(50), nullable=False)
+    
+    # Relationship with group
+    group = relationship("FilamentLinkGroup", back_populates="filament_links")
+    
+    def __repr__(self):
+        return f"<FilamentLink(type='{self.type}', color='{self.color}', brand='{self.brand}')>"
+
+
 def init_db(db_path):
     """Initialize the database and create tables if they don't exist."""
     engine = create_engine(f'sqlite:///{db_path}')

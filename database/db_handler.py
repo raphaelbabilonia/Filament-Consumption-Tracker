@@ -5,7 +5,7 @@ import os
 import datetime
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, scoped_session, joinedload
-from models.schema import Base, Filament, Printer, PrinterComponent, PrintJob
+from models.schema import Base, Filament, Printer, PrinterComponent, PrintJob, FilamentIdealInventory, FilamentLinkGroup, FilamentLink
 
 class DatabaseHandler:
     """Handler for database operations."""
@@ -31,7 +31,7 @@ class DatabaseHandler:
         self.Session = scoped_session(self.session_factory)
     
     # Filament operations
-    def add_filament(self, filament_type, color, brand, spool_weight, quantity_remaining=None, price=None):
+    def add_filament(self, filament_type, color, brand, spool_weight, quantity_remaining=None, price=None, purchase_date=None):
         """Add a new filament to the inventory."""
         session = self.Session()
         try:
@@ -45,7 +45,7 @@ class DatabaseHandler:
                 spool_weight=spool_weight,
                 quantity_remaining=quantity_remaining,
                 price=price,
-                purchase_date=datetime.datetime.now()
+                purchase_date=purchase_date if purchase_date else datetime.datetime.now()
             )
             session.add(filament)
             session.commit()
@@ -72,6 +72,36 @@ class DatabaseHandler:
             if not filament:
                 raise ValueError(f"No filament found with ID {filament_id}")
             filament.quantity_remaining = new_quantity
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def update_filament(self, filament_id, filament_type, color, brand, spool_weight, quantity_remaining, price, purchase_date):
+        """Update all properties of a filament."""
+        session = self.Session()
+        try:
+            filament = session.query(Filament).filter_by(id=filament_id).first()
+            if not filament:
+                raise ValueError(f"No filament found with ID {filament_id}")
+            
+            filament.type = filament_type
+            filament.color = color
+            filament.brand = brand
+            filament.spool_weight = spool_weight
+            filament.quantity_remaining = quantity_remaining
+            filament.price = price
+            
+            # Convert string date to datetime if needed
+            if isinstance(purchase_date, str):
+                import datetime
+                purchase_date = datetime.datetime.strptime(purchase_date, "%Y-%m-%d").date()
+            
+            filament.purchase_date = purchase_date
+            
             session.commit()
             return True
         except Exception as e:
@@ -444,35 +474,342 @@ class DatabaseHandler:
             session.close()
     
     def delete_print_job(self, job_id):
-        """Delete a print job and restore the filament quantity."""
+        """Delete a print job."""
         session = self.Session()
         try:
-            # Find the print job
-            print_job = session.query(PrintJob).filter_by(id=job_id).first()
-            if not print_job:
+            job = session.query(PrintJob).filter_by(id=job_id).first()
+            if not job:
                 raise ValueError(f"No print job found with ID {job_id}")
-            
-            # Get the filament and printer to restore/update data
-            filament = print_job.filament
-            printer = print_job.printer
-            
-            # Restore filament quantity
-            filament.quantity_remaining += print_job.filament_used
-            
-            # Reverse the component usage for all components of this printer
-            components = session.query(PrinterComponent).filter_by(printer_id=printer.id).all()
-            for component in components:
-                component.usage_hours -= print_job.duration
-                # Ensure usage hours don't go below zero
-                if component.usage_hours < 0:
-                    component.usage_hours = 0
-            
-            # Delete the print job
-            session.delete(print_job)
+                
+            session.delete(job)
             session.commit()
             return True
         except Exception as e:
             session.rollback()
             raise e
+        finally:
+            session.close()
+            
+    # Ideal Inventory operations
+    def set_ideal_filament_quantity(self, filament_type, color, brand, ideal_quantity):
+        """Set the ideal quantity for a specific filament type/color/brand."""
+        session = self.Session()
+        try:
+            # Check if record already exists
+            existing = session.query(FilamentIdealInventory).filter_by(
+                type=filament_type,
+                color=color,
+                brand=brand
+            ).first()
+            
+            if existing:
+                # Update existing record
+                existing.ideal_quantity = ideal_quantity
+                print(f"Updated ideal quantity for {filament_type} {color} {brand}: {ideal_quantity}g")
+            else:
+                # Create new record
+                new_ideal = FilamentIdealInventory(
+                    type=filament_type,
+                    color=color,
+                    brand=brand,
+                    ideal_quantity=ideal_quantity
+                )
+                session.add(new_ideal)
+                print(f"Created new ideal quantity for {filament_type} {color} {brand}: {ideal_quantity}g")
+                
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            print(f"Error setting ideal quantity: {str(e)}")
+            raise e
+        finally:
+            session.close()
+            
+    def get_ideal_filament_quantities(self):
+        """Get all ideal filament quantities."""
+        session = self.Session()
+        try:
+            return session.query(FilamentIdealInventory).all()
+        finally:
+            session.close()
+            
+    def get_ideal_filament_quantity(self, filament_type, color, brand):
+        """Get the ideal quantity for a specific filament."""
+        session = self.Session()
+        try:
+            ideal = session.query(FilamentIdealInventory).filter_by(
+                type=filament_type,
+                color=color,
+                brand=brand
+            ).first()
+            return ideal.ideal_quantity if ideal else 0
+        finally:
+            session.close()
+            
+    def get_inventory_status(self):
+        """Get the comparison between current and ideal inventory levels."""
+        session = self.Session()
+        try:
+            # Get the current aggregated inventory
+            current_inventory = self.get_aggregated_filament_inventory()
+            
+            # Get the ideal inventory quantities from the database
+            ideal_inventory = session.query(FilamentIdealInventory).all()
+            
+            # Convert ideal inventory to a dictionary for easier lookup
+            ideal_dict = {
+                (item.type, item.color, item.brand): item.ideal_quantity 
+                for item in ideal_inventory
+            }
+            
+            # Get filament link groups for combined view
+            link_groups = self.get_filament_link_groups()
+            
+            # Process link groups first
+            inventory_status = []
+            processed_filaments = set()  # To track which filaments have been processed in groups
+            
+            # Process linked filament groups
+            for group in link_groups:
+                if not group.filament_links:
+                    continue  # Skip empty groups
+                    
+                # Get all filaments in this group
+                group_filaments = []
+                total_current_quantity = 0
+                
+                for link in group.filament_links:
+                    key = (link.type, link.color, link.brand)
+                    processed_filaments.add(key)  # Mark as processed
+                    
+                    # Find this filament in current inventory
+                    for item in current_inventory:
+                        if item['type'] == link.type and item['color'] == link.color and item['brand'] == link.brand:
+                            group_filaments.append(item)
+                            total_current_quantity += item['quantity_remaining']
+                            break
+                
+                # Calculate combined stats
+                if group_filaments:
+                    # Use the group's ideal quantity
+                    ideal_qty = group.ideal_quantity
+                    
+                    # Calculate difference and percentage
+                    diff = total_current_quantity - ideal_qty
+                    
+                    # Calculate percentage only if ideal_qty is not zero
+                    if ideal_qty > 0:
+                        percentage = (total_current_quantity / ideal_qty * 100)
+                    else:
+                        percentage = None
+                    
+                    # Create group status entry
+                    group_status = {
+                        'is_group': True,
+                        'group_id': group.id,
+                        'group_name': group.name,
+                        'type': group.name,  # Use group name for type instead of concatenating all filament types
+                        'color': 'Group',    # Use a fixed label for color
+                        'brand': 'Group',    # Use a fixed label for brand
+                        'current_quantity': total_current_quantity,
+                        'ideal_quantity': ideal_qty,
+                        'difference': diff,
+                        'percentage': percentage,
+                        'spool_count': sum(item['spool_count'] for item in group_filaments if 'spool_count' in item),
+                        'filaments': group_filaments
+                    }
+                    
+                    inventory_status.append(group_status)
+            
+            # Process individual filaments (not in any group)
+            for item in current_inventory:
+                filament_key = (item['type'], item['color'], item['brand'])
+                
+                # Skip if this filament was already processed in a group
+                if filament_key in processed_filaments:
+                    continue
+                    
+                # Use the individually set ideal quantity for this filament
+                ideal_qty = ideal_dict.get(filament_key, 0)
+                
+                # Calculate difference and percentage
+                diff = item['quantity_remaining'] - ideal_qty
+                
+                # Calculate percentage only if ideal_qty is not zero
+                if ideal_qty > 0:
+                    percentage = (item['quantity_remaining'] / ideal_qty * 100)
+                else:
+                    # If ideal_qty is 0, set percentage to None to indicate it's not applicable
+                    percentage = None
+                
+                status = {
+                    'is_group': False,
+                    'type': item['type'],
+                    'color': item['color'],
+                    'brand': item['brand'],
+                    'current_quantity': item['quantity_remaining'],
+                    'ideal_quantity': ideal_qty,
+                    'difference': diff,
+                    'percentage': percentage,
+                    'spool_count': item['spool_count']
+                }
+                
+                inventory_status.append(status)
+                
+            # Add any ideal inventory items that aren't in current inventory (completely out of stock)
+            for key, ideal_qty in ideal_dict.items():
+                if not any(item['type'] == key[0] and item['color'] == key[1] and item['brand'] == key[2] 
+                          for item in current_inventory) and key not in processed_filaments:
+                    inventory_status.append({
+                        'is_group': False,
+                        'type': key[0],
+                        'color': key[1],
+                        'brand': key[2],
+                        'current_quantity': 0,
+                        'ideal_quantity': ideal_qty,
+                        'difference': -ideal_qty,
+                        'percentage': None,
+                        'spool_count': 0
+                    })
+            
+            return inventory_status
+        finally:
+            session.close()
+            
+    # Filament Link Group operations
+    def create_filament_link_group(self, name, description=None, ideal_quantity=0):
+        """Create a new filament link group."""
+        session = self.Session()
+        try:
+            group = FilamentLinkGroup(
+                name=name,
+                description=description,
+                ideal_quantity=ideal_quantity
+            )
+            session.add(group)
+            session.commit()
+            return group.id
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def update_filament_link_group(self, group_id, name=None, description=None, ideal_quantity=None):
+        """Update a filament link group."""
+        session = self.Session()
+        try:
+            group = session.query(FilamentLinkGroup).filter_by(id=group_id).first()
+            if not group:
+                raise ValueError(f"No filament link group found with ID {group_id}")
+            
+            if name is not None:
+                group.name = name
+            if description is not None:
+                group.description = description
+            if ideal_quantity is not None:
+                group.ideal_quantity = ideal_quantity
+                
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def delete_filament_link_group(self, group_id):
+        """Delete a filament link group."""
+        session = self.Session()
+        try:
+            group = session.query(FilamentLinkGroup).filter_by(id=group_id).first()
+            if not group:
+                raise ValueError(f"No filament link group found with ID {group_id}")
+                
+            session.delete(group)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def add_filament_to_link_group(self, group_id, filament_type, color, brand):
+        """Add a filament to a link group."""
+        session = self.Session()
+        try:
+            # Check if group exists
+            group = session.query(FilamentLinkGroup).filter_by(id=group_id).first()
+            if not group:
+                raise ValueError(f"No filament link group found with ID {group_id}")
+            
+            # Check if this filament is already in another group
+            existing_link = session.query(FilamentLink).filter_by(
+                type=filament_type, color=color, brand=brand
+            ).first()
+            
+            if existing_link:
+                if existing_link.group_id != group_id:
+                    raise ValueError(f"Filament {filament_type} {color} {brand} is already in another group")
+                return True  # Already in this group
+            
+            # Add the filament to the group
+            link = FilamentLink(
+                group_id=group_id,
+                type=filament_type,
+                color=color,
+                brand=brand
+            )
+            session.add(link)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def remove_filament_from_link_group(self, group_id, filament_type, color, brand):
+        """Remove a filament from a link group."""
+        session = self.Session()
+        try:
+            link = session.query(FilamentLink).filter_by(
+                group_id=group_id,
+                type=filament_type,
+                color=color,
+                brand=brand
+            ).first()
+            
+            if not link:
+                raise ValueError(f"Filament {filament_type} {color} {brand} not found in group {group_id}")
+                
+            session.delete(link)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def get_filament_link_groups(self):
+        """Get all filament link groups with their linked filaments."""
+        session = self.Session()
+        try:
+            return session.query(FilamentLinkGroup).options(
+                joinedload(FilamentLinkGroup.filament_links)
+            ).all()
+        finally:
+            session.close()
+    
+    def get_filament_link_group(self, group_id):
+        """Get a specific filament link group with its linked filaments."""
+        session = self.Session()
+        try:
+            return session.query(FilamentLinkGroup).options(
+                joinedload(FilamentLinkGroup.filament_links)
+            ).filter_by(id=group_id).first()
         finally:
             session.close()
