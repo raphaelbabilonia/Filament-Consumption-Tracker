@@ -179,6 +179,10 @@ The multicolor feature enables tracking of up to 3 additional filaments per prin
 -  All print jobs are displayed in the table below the entry form
 -  The date column displays dates in dd/mm/yy format for easy reading
 -  The duration column shows print times in hours and minutes (e.g., "2h 30m")
+-  Cost information is displayed for each job:
+   -  Material Cost: calculated from filament price and amount used
+   -  Electricity Cost: calculated from printer power consumption, duration, and global electricity cost setting
+   -  Total Cost: sum of material and electricity costs
 -  You can filter jobs by:
    -  Using the search box to find projects, filaments, or printers
    -  Using dropdown filters for specific printers or filament types
@@ -188,9 +192,10 @@ The multicolor feature enables tracking of up to 3 additional filaments per prin
 ### Exporting Data
 
 1. Use filters to select the data you want to export
-2. Click "Export Jobs to CSV"
-3. Choose a location to save the CSV file
-4. All visible jobs will be included in the export
+2. Click "Export to CSV"
+3. Choose a location to save the file
+4. The exported CSV will include all job details including dates, materials, printer, and costs
+5. Cost data is included without currency symbols for easy spreadsheet analysis
 
 ## Printer Management
 
@@ -199,8 +204,17 @@ The multicolor feature enables tracking of up to 3 additional filaments per prin
 1. Go to the "Printer Management" tab
 2. Enter the printer name
 3. Enter the model (optional)
-4. Add any notes (optional)
-5. Click "Add Printer"
+4. Enter the power consumption in kWh (optional but recommended for electricity cost calculations)
+5. Add any notes (optional)
+6. Click "Add Printer"
+
+### Setting Electricity Cost
+
+1. Go to the "Printer Management" tab
+2. Click the "Set Electricity Cost" button
+3. Enter your electricity cost per kWh
+4. Click "OK" to save
+5. This global setting will be used for all electricity cost calculations throughout the application
 
 ### Managing Components
 
@@ -246,10 +260,28 @@ The multicolor feature enables tracking of up to 3 additional filaments per prin
 -  Print hours by printer
 -  Material usage by printer
 -  Job counts by printer
+-  Electricity costs based on power consumption and print duration
 -  Filter by time period:
    -  All Time
    -  This Month
    -  This Year
+-  Temporarily adjust electricity cost per kWh for what-if scenarios (without changing the global setting)
+
+### Cost Analysis
+
+-  Complete breakdown of printing costs
+-  Material costs based on filament prices
+-  Electricity costs based on printer power consumption
+-  Visual comparison charts:
+   -  Pie chart showing cost distribution (material vs. electricity)
+   -  Bar chart comparing costs by project, filament type, or printer
+-  Detailed cost table with totals
+-  Group data by:
+   -  Project
+   -  Filament Type
+   -  Printer
+-  Filter by time period with the same options as other reports
+-  Temporarily adjust electricity cost per kWh for what-if scenarios (without changing the global setting)
 
 ### Component Status
 
@@ -352,8 +384,11 @@ The application stores its database at:
 
 ## Recent Updates
 
+-  Added global electricity cost per kWh setting in Printer Management tab
+-  Implemented comprehensive cost calculation for print jobs (material and electricity)
+-  Added new Cost Analysis tab with detailed cost breakdowns and visualizations
+-  Enhanced Printer Usage tab with electricity cost reporting
 -  Fixed search and filter functionality to prevent application freezing
 -  Improved inventory tracking with aggregated view
--  Added cost analysis reporting
 -  Enhanced printer component tracking with status indicators
 -  Added data backup and restore capabilities

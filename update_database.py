@@ -3,6 +3,12 @@ import shutil
 import datetime
 import sqlite3
 from PyQt5.QtWidgets import QApplication, QMessageBox
+from sqlalchemy import create_engine, Column, Float
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from database.db_handler import DatabaseHandler
+from models.schema import Base, Printer
 
 def update_database_schema():
     """
@@ -63,15 +69,61 @@ def update_database_schema():
         print("Database file not found. Please run the application first to create the database.")
         return False, "Database not found"
 
-if __name__ == "__main__":
-    print("=== Database Update for Multicolor Printing Support ===")
-    success, message = update_database_schema()
-    
-    if success:
-        if "updated successfully" in str(message):
-            print(f"SUCCESS: Database updated successfully. A backup was created at: {message}")
+def update_database():
+    """Update the database schema to add power consumption field."""
+    try:
+        # Get database path
+        documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
+        app_folder = os.path.join(documents_path, 'FilamentTracker')
+        db_path = os.path.join(app_folder, 'filament_tracker.db')
+        
+        if not os.path.exists(db_path):
+            print(f"Database not found at {db_path}")
+            return False, "Database not found"
+        
+        print(f"Found database at: {db_path}")
+        
+        # Connect to the database
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if power_consumption column exists in printers table
+        cursor.execute("PRAGMA table_info(printers)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        # Add power_consumption column if it doesn't exist
+        if "power_consumption" not in columns:
+            print("Adding power_consumption column to printers table...")
+            cursor.execute("ALTER TABLE printers ADD COLUMN power_consumption FLOAT DEFAULT 0.0")
+            conn.commit()
+            print("Power consumption field added successfully!")
+            return True, "Power consumption field added successfully"
         else:
-            print(f"SUCCESS: {message}")
+            print("Power consumption field already exists. No update needed.")
+            return True, "No update needed"
+    except Exception as e:
+        print(f"Error updating database: {str(e)}")
+        return False, str(e)
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+if __name__ == "__main__":
+    print("=== Database Update for Filament Consumption Tracker ===")
+    
+    # Run the multicolor printing update
+    print("\n=== Update for Multicolor Printing Support ===")
+    success, message = update_database_schema()
+    if success:
+        print(f"SUCCESS: {message}")
+    else:
+        print(f"ERROR: Failed to update database: {message}")
+    
+    # Run the power consumption update
+    print("\n=== Update for Power Consumption Tracking ===")
+    success, message = update_database()
+    if success:
+        print(f"SUCCESS: {message}")
     else:
         print(f"ERROR: Failed to update database: {message}")
     

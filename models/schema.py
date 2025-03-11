@@ -56,6 +56,7 @@ class Printer(Base):
     model = Column(String(50))
     purchase_date = Column(DateTime, default=datetime.datetime.now)
     notes = Column(Text)
+    power_consumption = Column(Float, default=0.0)  # Average power consumption in kWh
     
     # Relationship with print jobs
     print_jobs = relationship("PrintJob", back_populates="printer")
@@ -177,7 +178,19 @@ class FilamentLink(Base):
     group = relationship("FilamentLinkGroup", back_populates="filament_links")
     
     def __repr__(self):
-        return f"<FilamentLink(type='{self.type}', color='{self.color}', brand='{self.brand}')>"
+        return f"<FilamentLink(group_id={self.group_id}, type='{self.type}', color='{self.color}', brand='{self.brand}')>"
+
+
+class AppSettings(Base):
+    """Table for storing application settings."""
+    __tablename__ = 'app_settings'
+    
+    id = Column(Integer, primary_key=True)
+    setting_key = Column(String(50), nullable=False, unique=True)
+    setting_value = Column(String(255), nullable=False)
+    
+    def __repr__(self):
+        return f"<AppSettings(key='{self.setting_key}', value='{self.setting_value}')>"
 
 
 def init_db(db_path):

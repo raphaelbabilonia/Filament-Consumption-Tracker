@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QGroupBox, QLabel, 
                              QLineEdit, QTextEdit, QMessageBox, QInputDialog,
                              QHeaderView, QFormLayout, QDateEdit, QTabWidget,
-                             QSpinBox, QDoubleSpinBox, QDialog)
+                             QSpinBox, QDoubleSpinBox, QDialog, QDialogButtonBox)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
 
@@ -70,6 +70,80 @@ class ComponentDialog(QDialog):
         }
 
 
+class PrinterDialog(QDialog):
+    """Dialog for adding or editing printer details."""
+    
+    def __init__(self, parent=None, printer_data=None):
+        """Initialize printer dialog."""
+        super().__init__(parent)
+        self.printer_data = printer_data
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Setup the dialog UI."""
+        if self.printer_data:
+            self.setWindowTitle("Edit Printer")
+        else:
+            self.setWindowTitle("Add Printer")
+        
+        self.setMinimumWidth(400)
+        
+        layout = QVBoxLayout()
+        
+        form_layout = QFormLayout()
+        
+        # Printer name
+        self.name_input = QLineEdit()
+        if self.printer_data and 'name' in self.printer_data:
+            self.name_input.setText(self.printer_data.get('name', ''))
+        form_layout.addRow("Name:", self.name_input)
+        
+        # Printer model
+        self.model_input = QLineEdit()
+        if self.printer_data and 'model' in self.printer_data:
+            self.model_input.setText(self.printer_data.get('model', ''))
+        form_layout.addRow("Model:", self.model_input)
+        
+        # Power consumption
+        self.power_consumption_input = QDoubleSpinBox()
+        self.power_consumption_input.setRange(0.0, 1000.0)
+        self.power_consumption_input.setDecimals(2)
+        self.power_consumption_input.setSuffix(" kWh")
+        if self.printer_data and 'power_consumption' in self.printer_data:
+            self.power_consumption_input.setValue(self.printer_data.get('power_consumption', 0.0))
+        else:
+            self.power_consumption_input.setValue(0.0)
+        form_layout.addRow("Power Consumption (kWh):", self.power_consumption_input)
+        
+        # Notes
+        self.notes_input = QTextEdit()
+        self.notes_input.setMaximumHeight(80)
+        if self.printer_data and 'notes' in self.printer_data:
+            self.notes_input.setPlainText(self.printer_data.get('notes', ''))
+        form_layout.addRow("Notes:", self.notes_input)
+        
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        
+        self.setLayout(layout)
+        
+    def get_data(self):
+        """Get the printer data from the form."""
+        return {
+            'name': self.name_input.text().strip(),
+            'model': self.model_input.text().strip(),
+            'power_consumption': self.power_consumption_input.value(),
+            'notes': self.notes_input.toPlainText().strip()
+        }
+
+
 class PrinterTab(QWidget):
     """Printer management tab."""
     
@@ -92,25 +166,6 @@ class PrinterTab(QWidget):
         printers_widget = QWidget()
         printers_layout = QVBoxLayout()
         
-        # Add printer form
-        add_form_box = QGroupBox("Add New Printer")
-        form_layout = QFormLayout()
-        
-        # Printer name
-        self.name_input = QLineEdit()
-        form_layout.addRow("Name:", self.name_input)
-        
-        # Printer model
-        self.model_input = QLineEdit()
-        form_layout.addRow("Model:", self.model_input)
-        
-        # Notes
-        self.notes_input = QTextEdit()
-        self.notes_input.setMaximumHeight(80)
-        form_layout.addRow("Notes:", self.notes_input)
-        
-        add_form_box.setLayout(form_layout)
-        
         # Add button
         button_layout = QHBoxLayout()
         self.add_button = QPushButton("Add Printer")
@@ -120,9 +175,9 @@ class PrinterTab(QWidget):
         
         # Create table for displaying printers
         self.printer_table = QTableWidget()
-        self.printer_table.setColumnCount(4)
+        self.printer_table.setColumnCount(5)
         self.printer_table.setHorizontalHeaderLabels([
-            "ID", "Name", "Model", "Notes"
+            "ID", "Name", "Model", "Power (kWh)", "Notes"
         ])
         self.printer_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.printer_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -135,14 +190,16 @@ class PrinterTab(QWidget):
         self.delete_button.clicked.connect(self.delete_printer)
         self.add_component_button = QPushButton("Add Component")
         self.add_component_button.clicked.connect(self.add_component)
+        self.electricity_cost_button = QPushButton("Set Electricity Cost")
+        self.electricity_cost_button.clicked.connect(self.set_electricity_cost)
         
         button_layout2.addWidget(self.edit_button)
         button_layout2.addWidget(self.delete_button)
         button_layout2.addStretch()
+        button_layout2.addWidget(self.electricity_cost_button)
         button_layout2.addWidget(self.add_component_button)
         
         # Add widgets to printers layout
-        printers_layout.addWidget(add_form_box)
         printers_layout.addLayout(button_layout)
         printers_layout.addWidget(QLabel("Current Printers:"))
         printers_layout.addWidget(self.printer_table)
@@ -201,21 +258,17 @@ class PrinterTab(QWidget):
             self.load_components()
     
     def load_printers(self):
-        """Load printers from database and display in table."""
+        """Load printers from the database and display in the table."""
         try:
             printers = self.db_handler.get_printers()
             self.printer_table.setRowCount(len(printers))
             
             for row, printer in enumerate(printers):
-                # Set ID
-                id_item = QTableWidgetItem(str(printer.id))
-                self.printer_table.setItem(row, 0, id_item)
-                
-                # Set printer details
+                self.printer_table.setItem(row, 0, QTableWidgetItem(str(printer.id)))
                 self.printer_table.setItem(row, 1, QTableWidgetItem(printer.name))
                 self.printer_table.setItem(row, 2, QTableWidgetItem(printer.model or ""))
-                self.printer_table.setItem(row, 3, QTableWidgetItem(printer.notes or ""))
-                
+                self.printer_table.setItem(row, 3, QTableWidgetItem(f"{printer.power_consumption:.2f}"))
+                self.printer_table.setItem(row, 4, QTableWidgetItem(printer.notes or ""))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load printers: {str(e)}")
     
@@ -259,33 +312,32 @@ class PrinterTab(QWidget):
     
     def add_printer(self):
         """Add a new printer to the database."""
-        try:
-            name = self.name_input.text()
-            model = self.model_input.text()
-            notes = self.notes_input.toPlainText()
+        # Create and show the dialog
+        dialog = PrinterDialog(self)
+        result = dialog.exec_()
+        
+        if result != QDialog.Accepted:
+            return
             
-            # Basic validation
-            if not name:
-                QMessageBox.warning(self, "Validation Error", "Printer name is required.")
-                return
-                
-            # Add to database
+        printer_data = dialog.get_data()
+        
+        # Basic validation
+        if not printer_data['name']:
+            QMessageBox.warning(self, "Missing Information", "Please enter a printer name.")
+            return
+            
+        try:
             self.db_handler.add_printer(
-                name=name,
-                model=model,
-                notes=notes
+                name=printer_data['name'],
+                model=printer_data['model'],
+                power_consumption=printer_data['power_consumption'],
+                notes=printer_data['notes']
             )
             
-            # Clear inputs
-            self.name_input.clear()
-            self.model_input.clear()
-            self.notes_input.clear()
-            
-            # Reload table
+            # Refresh the printer list
             self.load_printers()
             
             QMessageBox.information(self, "Success", "Printer added successfully!")
-            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add printer: {str(e)}")
     
@@ -301,40 +353,36 @@ class PrinterTab(QWidget):
         printer_id = int(self.printer_table.item(row, 0).text())
         current_name = self.printer_table.item(row, 1).text()
         current_model = self.printer_table.item(row, 2).text()
-        current_notes = self.printer_table.item(row, 3).text()
+        current_power = float(self.printer_table.item(row, 3).text())
+        current_notes = self.printer_table.item(row, 4).text()
         
-        # Get new name
-        name, ok = QInputDialog.getText(
-            self, "Edit Printer", "Enter new printer name:", text=current_name
-        )
-        if not ok or not name:
-            return
+        # Create printer data dictionary
+        printer_data = {
+            'name': current_name,
+            'model': current_model,
+            'power_consumption': current_power,
+            'notes': current_notes
+        }
+        
+        # Create and show the dialog
+        dialog = PrinterDialog(self, printer_data)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            updated_data = dialog.get_data()
             
-        # Get new model
-        model, ok = QInputDialog.getText(
-            self, "Edit Printer", "Enter new model:", text=current_model
-        )
-        if not ok:
-            return
-            
-        # Get new notes
-        notes, ok = QInputDialog.getText(
-            self, "Edit Printer", "Enter new notes:", text=current_notes
-        )
-        if not ok:
-            notes = current_notes
-            
-        try:
-            self.db_handler.update_printer(
-                printer_id=printer_id,
-                name=name,
-                model=model,
-                notes=notes
-            )
-            self.load_printers()
-            QMessageBox.information(self, "Success", "Printer updated successfully!")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to update printer: {str(e)}")
+            try:
+                self.db_handler.update_printer(
+                    printer_id=printer_id,
+                    name=updated_data['name'],
+                    model=updated_data['model'],
+                    power_consumption=updated_data['power_consumption'],
+                    notes=updated_data['notes']
+                )
+                self.load_printers()
+                QMessageBox.information(self, "Success", "Printer updated successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to update printer: {str(e)}")
     
     def delete_printer(self):
         """Delete the selected printer."""
@@ -435,10 +483,86 @@ class PrinterTab(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to reset component usage: {str(e)}")
     
     def remove_component(self):
-        """Remove a component from the database."""
-        QMessageBox.information(
+        """Remove a selected component from the database."""
+        selected_items = self.component_table.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select a component to remove.")
+            return
+            
+        row = selected_items[0].row()
+        component_id = int(self.component_table.item(row, 0).text())
+        component_name = self.component_table.item(row, 1).text()
+        
+        # Confirm deletion
+        reply = QMessageBox.question(
             self, 
-            "Not Implemented",
-            "Component removal is not directly implemented in this version.\n"
-            "Components are automatically removed when their associated printer is deleted."
+            "Confirm Removal",
+            f"Are you sure you want to remove the component '{component_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
         )
+        
+        if reply == QMessageBox.Yes:
+            # Remove component from database
+            self.db_handler.remove_component(component_id)
+            
+            # Refresh component list
+            self.load_components()
+            
+            QMessageBox.information(
+                self,
+                "Component Removed",
+                f"Component '{component_name}' has been removed from the database.",
+                QMessageBox.Ok
+            )
+    
+    def set_electricity_cost(self):
+        """Set the global electricity cost per kWh."""
+        # Get current electricity cost
+        current_cost = self.db_handler.get_electricity_cost()
+        
+        # Create dialog for setting electricity cost
+        electricity_cost_dialog = QDialog(self)
+        electricity_cost_dialog.setWindowTitle("Set Electricity Cost per kWh")
+        electricity_cost_dialog.setMinimumWidth(300)
+        
+        layout = QVBoxLayout()
+        
+        form_layout = QFormLayout()
+        
+        # Electricity cost per kWh input
+        cost_input = QDoubleSpinBox()
+        cost_input.setRange(0.01, 10.0)
+        cost_input.setDecimals(2)
+        cost_input.setValue(current_cost)
+        cost_input.setSingleStep(0.01)
+        cost_input.setSuffix(" $/kWh")
+        form_layout.addRow("Electricity Cost per kWh:", cost_input)
+        
+        # Information label
+        info_label = QLabel("This setting will be used for all electricity cost calculations throughout the application.")
+        info_label.setWordWrap(True)
+        
+        # Button box
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(electricity_cost_dialog.accept)
+        button_box.rejected.connect(electricity_cost_dialog.reject)
+        
+        layout.addLayout(form_layout)
+        layout.addWidget(info_label)
+        layout.addWidget(button_box)
+        
+        electricity_cost_dialog.setLayout(layout)
+        
+        # Show dialog and process result
+        if electricity_cost_dialog.exec_():
+            new_cost = cost_input.value()
+            # Save to database
+            self.db_handler.set_electricity_cost(new_cost)
+            QMessageBox.information(
+                self,
+                "Electricity Cost Updated",
+                f"Electricity cost per kWh has been set to ${new_cost:.2f}.\n\n"
+                "This value will be used for all electricity cost calculations in the application.",
+                QMessageBox.Ok
+            )

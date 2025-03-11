@@ -5,7 +5,7 @@ import os
 import datetime
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, scoped_session, joinedload
-from models.schema import Base, Filament, Printer, PrinterComponent, PrintJob, FilamentIdealInventory, FilamentLinkGroup, FilamentLink
+from models.schema import Base, Filament, Printer, PrinterComponent, PrintJob, FilamentIdealInventory, FilamentLinkGroup, FilamentLink, AppSettings
 
 class DatabaseHandler:
     """Handler for database operations."""
@@ -29,6 +29,71 @@ class DatabaseHandler:
         # Create a session factory
         self.session_factory = sessionmaker(bind=self.engine)
         self.Session = scoped_session(self.session_factory)
+        
+        # Initialize default settings if they don't exist
+        self.initialize_default_settings()
+    
+    def initialize_default_settings(self):
+        """Initialize default application settings if they don't exist."""
+        session = self.Session()
+        try:
+            # Check if electricity cost setting exists, if not, create it
+            electricity_cost = session.query(AppSettings).filter_by(setting_key='electricity_cost_per_kwh').first()
+            if not electricity_cost:
+                electricity_cost = AppSettings(setting_key='electricity_cost_per_kwh', setting_value='0.30')
+                session.add(electricity_cost)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"Error initializing default settings: {e}")
+        finally:
+            session.close()
+    
+    # Settings operations
+    def get_setting(self, key, default=None):
+        """Get a setting value by key."""
+        session = self.Session()
+        try:
+            setting = session.query(AppSettings).filter_by(setting_key=key).first()
+            if setting:
+                return setting.setting_value
+            return default
+        except Exception as e:
+            print(f"Error getting setting: {e}")
+            return default
+        finally:
+            session.close()
+    
+    def set_setting(self, key, value):
+        """Set a setting value by key."""
+        session = self.Session()
+        try:
+            setting = session.query(AppSettings).filter_by(setting_key=key).first()
+            if setting:
+                setting.setting_value = str(value)
+            else:
+                setting = AppSettings(setting_key=key, setting_value=str(value))
+                session.add(setting)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            print(f"Error setting value: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_electricity_cost(self):
+        """Get the global electricity cost per kWh setting."""
+        cost_str = self.get_setting('electricity_cost_per_kwh', '0.30')
+        try:
+            return float(cost_str)
+        except (ValueError, TypeError):
+            return 0.30  # Default value
+    
+    def set_electricity_cost(self, cost):
+        """Set the global electricity cost per kWh setting."""
+        return self.set_setting('electricity_cost_per_kwh', str(cost))
     
     # Filament operations
     def add_filament(self, filament_type, color, brand, spool_weight, quantity_remaining=None, price=None, purchase_date=None):
@@ -204,7 +269,7 @@ class DatabaseHandler:
             session.close()
     
     # Printer operations
-    def add_printer(self, name, model=None, notes=None):
+    def add_printer(self, name, model=None, power_consumption=0.0, notes=None):
         """Add a new printer to the database."""
         session = self.Session()
         try:
@@ -212,6 +277,7 @@ class DatabaseHandler:
                 name=name,
                 model=model,
                 purchase_date=datetime.datetime.now(),
+                power_consumption=power_consumption,
                 notes=notes
             )
             session.add(printer)
@@ -231,7 +297,7 @@ class DatabaseHandler:
         finally:
             session.close()
     
-    def update_printer(self, printer_id, name=None, model=None, notes=None):
+    def update_printer(self, printer_id, name=None, model=None, power_consumption=None, notes=None):
         """Update printer information."""
         session = self.Session()
         try:
@@ -243,6 +309,8 @@ class DatabaseHandler:
                 printer.name = name
             if model:
                 printer.model = model
+            if power_consumption is not None:
+                printer.power_consumption = power_consumption
             if notes is not None:
                 printer.notes = notes
                 

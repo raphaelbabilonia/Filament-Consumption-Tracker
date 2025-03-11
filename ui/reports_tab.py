@@ -5,7 +5,7 @@ import datetime
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QComboBox, QDateEdit, QGroupBox, QFormLayout,
                              QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QMessageBox, QFrame, QSplitter)
+                             QMessageBox, QFrame, QSplitter, QDoubleSpinBox)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QPalette, QColor
 
@@ -34,11 +34,14 @@ class ReportsTab(QWidget):
     """Reports and data visualization tab."""
     
     def __init__(self, db_handler):
-        """Initialize reports tab."""
+        """Initialize reports tab with database handler."""
         super().__init__()
         
         self.db_handler = db_handler
         self.setup_ui()
+        
+        # Initialize with the first tab selected
+        self.tab_changed(0)
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -59,6 +62,10 @@ class ReportsTab(QWidget):
         self.printer_usage_tab = self.create_printer_usage_tab()
         self.tab_widget.addTab(self.printer_usage_tab, "Printer Usage")
         
+        # Cost analysis tab
+        self.cost_analysis_tab = self.create_cost_analysis_tab()
+        self.tab_widget.addTab(self.cost_analysis_tab, "Cost Analysis")
+        
         # Component status tab
         self.component_status_tab = self.create_component_status_tab()
         self.tab_widget.addTab(self.component_status_tab, "Component Status")
@@ -73,6 +80,15 @@ class ReportsTab(QWidget):
         
     def tab_changed(self, index):
         """Handle tab changes to refresh data."""
+        # Update electricity cost inputs if they exist
+        global_cost = self.db_handler.get_electricity_cost()
+        
+        # Update cost display in all relevant tabs
+        if hasattr(self, 'electricity_cost_input'):
+            self.electricity_cost_input.setValue(global_cost)
+        if hasattr(self, 'cost_electricity_input'):
+            self.cost_electricity_input.setValue(global_cost)
+        
         # Refresh data when tab is changed
         if index == 0:  # Usage Summary
             self.refresh_usage_summary()
@@ -80,7 +96,9 @@ class ReportsTab(QWidget):
             self.refresh_filament_inventory()
         elif index == 2:  # Printer Usage
             self.refresh_printer_usage()
-        elif index == 3:  # Component Status
+        elif index == 3:  # Cost Analysis
+            self.refresh_cost_analysis()
+        elif index == 4:  # Component Status
             self.refresh_component_status()
     
     def create_usage_summary_tab(self):
@@ -212,6 +230,16 @@ class ReportsTab(QWidget):
         controls_layout.addWidget(QLabel("Time Period:"))
         controls_layout.addWidget(self.printer_time_period)
         
+        # Electricity cost per kWh (displays the global setting but allows temporary override)
+        controls_layout.addWidget(QLabel("Electricity Cost per kWh:"))
+        self.electricity_cost_input = QDoubleSpinBox()
+        self.electricity_cost_input.setRange(0.01, 10.0)
+        self.electricity_cost_input.setDecimals(2)
+        self.electricity_cost_input.setValue(self.db_handler.get_electricity_cost())  # Use global setting
+        self.electricity_cost_input.setSingleStep(0.01)
+        self.electricity_cost_input.valueChanged.connect(self.refresh_printer_usage)
+        controls_layout.addWidget(self.electricity_cost_input)
+        
         # Refresh button
         self.printer_refresh_button = QPushButton("Refresh")
         self.printer_refresh_button.clicked.connect(self.refresh_printer_usage)
@@ -232,9 +260,9 @@ class ReportsTab(QWidget):
         
         # Table showing printer statistics
         self.printer_table = QTableWidget()
-        self.printer_table.setColumnCount(4)
+        self.printer_table.setColumnCount(5)
         self.printer_table.setHorizontalHeaderLabels([
-            "Printer", "Total Jobs", "Total Hours", "Total Filament Used (g)"
+            "Printer", "Total Jobs", "Total Hours", "Total Filament Used (g)", "Electricity Cost"
         ])
         self.printer_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
@@ -242,6 +270,100 @@ class ReportsTab(QWidget):
         layout.addWidget(control_box)
         layout.addWidget(canvas_frame)
         layout.addWidget(self.printer_table)
+        
+        tab.setLayout(layout)
+        return tab
+    
+    def create_cost_analysis_tab(self):
+        """Create the cost analysis tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Controls for cost analysis
+        control_box = QGroupBox("Cost Analysis Settings")
+        controls_layout = QHBoxLayout()
+        
+        # Time period selection
+        self.cost_time_period = QComboBox()
+        self.cost_time_period.addItems(["All Time", "This Month", "This Year"])
+        self.cost_time_period.currentIndexChanged.connect(self.refresh_cost_analysis)
+        controls_layout.addWidget(QLabel("Time Period:"))
+        controls_layout.addWidget(self.cost_time_period)
+        
+        # Electricity cost per kWh (displays the global setting but allows temporary override)
+        controls_layout.addWidget(QLabel("Electricity Cost per kWh:"))
+        self.cost_electricity_input = QDoubleSpinBox()
+        self.cost_electricity_input.setRange(0.01, 10.0)
+        self.cost_electricity_input.setDecimals(2)
+        self.cost_electricity_input.setValue(self.db_handler.get_electricity_cost())  # Use global setting
+        self.cost_electricity_input.setSingleStep(0.01)
+        self.cost_electricity_input.valueChanged.connect(self.refresh_cost_analysis)
+        controls_layout.addWidget(self.cost_electricity_input)
+        
+        # Grouping option
+        controls_layout.addWidget(QLabel("Group By:"))
+        self.cost_grouping = QComboBox()
+        self.cost_grouping.addItems(["Project", "Filament Type", "Printer"])
+        self.cost_grouping.currentIndexChanged.connect(self.refresh_cost_analysis)
+        controls_layout.addWidget(self.cost_grouping)
+        
+        # Refresh button
+        self.cost_refresh_button = QPushButton("Refresh")
+        self.cost_refresh_button.clicked.connect(self.refresh_cost_analysis)
+        controls_layout.addWidget(self.cost_refresh_button)
+        
+        controls_layout.addStretch()
+        control_box.setLayout(controls_layout)
+        
+        # Create a splitter for charts and table
+        splitter = QSplitter(Qt.Vertical)
+        
+        # Top part for charts
+        charts_widget = QWidget()
+        charts_layout = QHBoxLayout(charts_widget)
+        
+        # Create two canvas frames side by side
+        # Left chart - Cost breakdown (material vs electricity)
+        left_frame = QFrame()
+        left_frame.setFrameShape(QFrame.StyledPanel)
+        left_frame.setFrameShadow(QFrame.Sunken)
+        left_layout = QVBoxLayout(left_frame)
+        left_layout.addWidget(QLabel("Cost Breakdown"))
+        self.cost_breakdown_canvas = MplCanvas(width=5, height=4)
+        left_layout.addWidget(self.cost_breakdown_canvas)
+        
+        # Right chart - Project/Filament/Printer comparison
+        right_frame = QFrame()
+        right_frame.setFrameShape(QFrame.StyledPanel)
+        right_frame.setFrameShadow(QFrame.Sunken)
+        right_layout = QVBoxLayout(right_frame)
+        right_layout.addWidget(QLabel("Cost Comparison"))
+        self.cost_comparison_canvas = MplCanvas(width=5, height=4)
+        right_layout.addWidget(self.cost_comparison_canvas)
+        
+        charts_layout.addWidget(left_frame)
+        charts_layout.addWidget(right_frame)
+        
+        # Bottom part for detailed cost table
+        table_widget = QWidget()
+        table_layout = QVBoxLayout(table_widget)
+        table_layout.addWidget(QLabel("Detailed Cost Breakdown"))
+        
+        self.cost_table = QTableWidget()
+        self.cost_table.setColumnCount(6)
+        self.cost_table.setHorizontalHeaderLabels([
+            "Name", "Total Jobs", "Total Hours", "Material Cost", "Electricity Cost", "Total Cost"
+        ])
+        self.cost_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table_layout.addWidget(self.cost_table)
+        
+        # Add widgets to splitter
+        splitter.addWidget(charts_widget)
+        splitter.addWidget(table_widget)
+        
+        # Add widgets to main layout
+        layout.addWidget(control_box)
+        layout.addWidget(splitter)
         
         tab.setLayout(layout)
         return tab
@@ -557,9 +679,17 @@ class ReportsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to generate inventory report: {str(e)}")
     
     def refresh_printer_usage(self):
-        """Refresh the printer usage statistics."""
+        """Refresh the printer usage stats."""
         try:
+            # Get settings
             time_period = self.printer_time_period.currentText()
+            electricity_cost_per_kwh = self.electricity_cost_input.value()
+            
+            # Update electricity cost from global setting if it has changed
+            global_cost = self.db_handler.get_electricity_cost()
+            if abs(electricity_cost_per_kwh - global_cost) < 0.001:  # If they match within a small epsilon
+                # Update to exactly match the global value to avoid floating point issues
+                self.electricity_cost_input.setValue(global_cost)
             
             # Determine date range based on selection
             end_date = datetime.datetime.now()
@@ -595,12 +725,18 @@ class ReportsTab(QWidget):
                     printer_data[printer_name] = {
                         'total_jobs': 0,
                         'total_hours': 0,
-                        'total_filament': 0
+                        'total_filament': 0,
+                        'electricity_cost': 0
                     }
                 
                 printer_data[printer_name]['total_jobs'] += 1
                 printer_data[printer_name]['total_hours'] += job.duration
                 printer_data[printer_name]['total_filament'] += job.filament_used
+                
+                # Calculate electricity cost
+                if hasattr(job.printer, 'power_consumption') and job.printer.power_consumption > 0:
+                    electricity_cost = job.printer.power_consumption * job.duration * electricity_cost_per_kwh
+                    printer_data[printer_name]['electricity_cost'] += electricity_cost
             
             # Create chart with multiple metrics
             printer_names = list(printer_data.keys())
@@ -608,11 +744,11 @@ class ReportsTab(QWidget):
             
             # Create a new chart directly on our canvas instead of copying from another figure
             self.printer_canvas.axes.clear()
-            width = 0.35
+            width = 0.25  # Narrower width to accommodate three bars
             
             # Bar for filament used
             filament_bars = self.printer_canvas.axes.bar(
-                [i - width/2 for i in x], 
+                [i - width for i in x], 
                 [data['total_filament'] for data in printer_data.values()], 
                 width, 
                 label='Filament Used (g)', 
@@ -622,11 +758,20 @@ class ReportsTab(QWidget):
             # Create a second y-axis for print hours
             ax2 = self.printer_canvas.axes.twinx()
             hours_bars = ax2.bar(
-                [i + width/2 for i in x], 
+                [i for i in x], 
                 [data['total_hours'] for data in printer_data.values()], 
                 width, 
                 label='Print Hours', 
                 color='orange'
+            )
+            
+            # Create a third bar for electricity cost
+            cost_bars = ax2.bar(
+                [i + width for i in x], 
+                [data['electricity_cost'] for data in printer_data.values()], 
+                width, 
+                label='Electricity Cost ($)', 
+                color='green'
             )
             
             # Set labels and title
@@ -635,7 +780,7 @@ class ReportsTab(QWidget):
             self.printer_canvas.axes.set_title(f'Printer Usage Statistics ({time_period})')
             self.printer_canvas.axes.set_xticks(x)
             self.printer_canvas.axes.set_xticklabels(printer_names)
-            ax2.set_ylabel('Print Hours')
+            ax2.set_ylabel('Print Hours / Cost ($)')
             
             # Add legend
             lines1, labels1 = self.printer_canvas.axes.get_legend_handles_labels()
@@ -664,6 +809,17 @@ class ReportsTab(QWidget):
                     ha='center', 
                     va='bottom'
                 )
+                
+            for i, bar in enumerate(cost_bars):
+                height = bar.get_height()
+                ax2.annotate(
+                    f'${height:.2f}',
+                    xy=(bar.get_x() + bar.get_width()/2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', 
+                    va='bottom'
+                )
             
             # Apply tight layout and redraw
             self.printer_canvas.fig.tight_layout()
@@ -677,6 +833,7 @@ class ReportsTab(QWidget):
                 self.printer_table.setItem(i, 1, QTableWidgetItem(str(data['total_jobs'])))
                 self.printer_table.setItem(i, 2, QTableWidgetItem(f"{data['total_hours']:.1f}"))
                 self.printer_table.setItem(i, 3, QTableWidgetItem(f"{data['total_filament']:.1f}"))
+                self.printer_table.setItem(i, 4, QTableWidgetItem(f"${data['electricity_cost']:.2f}"))
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate printer usage report: {str(e)}")
@@ -733,3 +890,214 @@ class ReportsTab(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load component status: {str(e)}")
+    
+    def refresh_cost_analysis(self):
+        """Refresh the cost analysis displays."""
+        try:
+            # Get settings
+            time_period = self.cost_time_period.currentText()
+            electricity_cost_per_kwh = self.cost_electricity_input.value()
+            grouping = self.cost_grouping.currentText()
+            
+            # Update electricity cost from global setting if it has changed
+            global_cost = self.db_handler.get_electricity_cost()
+            if abs(electricity_cost_per_kwh - global_cost) < 0.001:  # If they match within a small epsilon
+                # Update to exactly match the global value to avoid floating point issues
+                self.cost_electricity_input.setValue(global_cost)
+            
+            # Determine date range based on selection
+            end_date = datetime.datetime.now()
+            if time_period == "This Month":
+                start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            elif time_period == "This Year":
+                start_date = end_date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            else:  # All Time
+                start_date = None
+            
+            # Get print jobs within date range
+            print_jobs = self.db_handler.get_print_jobs(
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            if not print_jobs:
+                # Clear and display no data message
+                self.cost_breakdown_canvas.axes.clear()
+                self.cost_breakdown_canvas.axes.text(0.5, 0.5, 'No print job data available for the selected period', 
+                                               ha='center', va='center')
+                self.cost_breakdown_canvas.draw()
+                
+                self.cost_comparison_canvas.axes.clear()
+                self.cost_comparison_canvas.axes.text(0.5, 0.5, 'No print job data available for the selected period', 
+                                                ha='center', va='center')
+                self.cost_comparison_canvas.draw()
+                
+                self.cost_table.setRowCount(0)
+                return
+            
+            # Initialize aggregation data
+            total_material_cost = 0
+            total_electricity_cost = 0
+            grouped_data = {}
+            
+            # Process job data
+            for job in print_jobs:
+                # Calculate material cost
+                material_cost = 0
+                
+                # Primary filament cost
+                if job.filament and job.filament.price is not None and job.filament.spool_weight:
+                    cost_per_gram = job.filament.price / job.filament.spool_weight
+                    material_cost += cost_per_gram * job.filament_used
+                
+                # Secondary filaments
+                if job.filament_id_2 and job.filament_2 and job.filament_2.price is not None and job.filament_2.spool_weight:
+                    cost_per_gram = job.filament_2.price / job.filament_2.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_2
+                
+                if job.filament_id_3 and job.filament_3 and job.filament_3.price is not None and job.filament_3.spool_weight:
+                    cost_per_gram = job.filament_3.price / job.filament_3.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_3
+                
+                if job.filament_id_4 and job.filament_4 and job.filament_4.price is not None and job.filament_4.spool_weight:
+                    cost_per_gram = job.filament_4.price / job.filament_4.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_4
+                
+                # Calculate electricity cost
+                electricity_cost = 0
+                if hasattr(job.printer, 'power_consumption') and job.printer.power_consumption > 0:
+                    electricity_cost = job.printer.power_consumption * job.duration * electricity_cost_per_kwh
+                
+                # Update totals
+                total_material_cost += material_cost
+                total_electricity_cost += electricity_cost
+                
+                # Group data based on selected grouping
+                if grouping == "Project":
+                    group_key = job.project_name
+                elif grouping == "Filament Type":
+                    group_key = f"{job.filament.type}"
+                else:  # Printer
+                    group_key = job.printer.name
+                
+                if group_key not in grouped_data:
+                    grouped_data[group_key] = {
+                        'total_jobs': 0,
+                        'total_hours': 0,
+                        'material_cost': 0,
+                        'electricity_cost': 0
+                    }
+                
+                grouped_data[group_key]['total_jobs'] += 1
+                grouped_data[group_key]['total_hours'] += job.duration
+                grouped_data[group_key]['material_cost'] += material_cost
+                grouped_data[group_key]['electricity_cost'] += electricity_cost
+            
+            # Create overall cost breakdown pie chart
+            self.cost_breakdown_canvas.axes.clear()
+            
+            # Only create pie chart if there are costs
+            if total_material_cost > 0 or total_electricity_cost > 0:
+                labels = ['Material Cost', 'Electricity Cost']
+                sizes = [total_material_cost, total_electricity_cost]
+                colors = ['#ff9999', '#66b3ff']
+                
+                self.cost_breakdown_canvas.axes.pie(
+                    sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
+                    startangle=90, shadow=False
+                )
+                self.cost_breakdown_canvas.axes.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+                self.cost_breakdown_canvas.axes.set_title(f'Cost Breakdown ({time_period})\nTotal: ${total_material_cost + total_electricity_cost:.2f}')
+            else:
+                self.cost_breakdown_canvas.axes.text(0.5, 0.5, 'No cost data available', ha='center', va='center')
+            
+            self.cost_breakdown_canvas.draw()
+            
+            # Create grouped cost comparison chart
+            self.cost_comparison_canvas.axes.clear()
+            
+            if grouped_data:
+                group_names = list(grouped_data.keys())
+                x = range(len(group_names))
+                width = 0.35
+                
+                # Bar for material cost
+                material_bars = self.cost_comparison_canvas.axes.bar(
+                    [i - width/2 for i in x], 
+                    [data['material_cost'] for data in grouped_data.values()], 
+                    width, 
+                    label='Material Cost', 
+                    color='#ff9999'
+                )
+                
+                # Bar for electricity cost
+                electricity_bars = self.cost_comparison_canvas.axes.bar(
+                    [i + width/2 for i in x], 
+                    [data['electricity_cost'] for data in grouped_data.values()], 
+                    width, 
+                    label='Electricity Cost', 
+                    color='#66b3ff'
+                )
+                
+                # Set labels and title
+                self.cost_comparison_canvas.axes.set_xlabel(f'{grouping}')
+                self.cost_comparison_canvas.axes.set_ylabel('Cost ($)')
+                self.cost_comparison_canvas.axes.set_title(f'Cost Comparison by {grouping}')
+                self.cost_comparison_canvas.axes.set_xticks(x)
+                
+                # Format x-tick labels to fit
+                if len(max(group_names, key=len)) > 10:
+                    self.cost_comparison_canvas.axes.set_xticklabels(
+                        group_names, rotation=45, ha='right'
+                    )
+                else:
+                    self.cost_comparison_canvas.axes.set_xticklabels(group_names)
+                
+                # Add legend
+                self.cost_comparison_canvas.axes.legend()
+                
+                # Add data labels
+                for i, bar in enumerate(material_bars):
+                    height = bar.get_height()
+                    if height > 0:
+                        self.cost_comparison_canvas.axes.annotate(
+                            f'${height:.2f}',
+                            xy=(bar.get_x() + bar.get_width()/2, height),
+                            xytext=(0, 3),  # 3 points vertical offset
+                            textcoords="offset points",
+                            ha='center', 
+                            va='bottom'
+                        )
+                
+                for i, bar in enumerate(electricity_bars):
+                    height = bar.get_height()
+                    if height > 0:
+                        self.cost_comparison_canvas.axes.annotate(
+                            f'${height:.2f}',
+                            xy=(bar.get_x() + bar.get_width()/2, height),
+                            xytext=(0, 3),  # 3 points vertical offset
+                            textcoords="offset points",
+                            ha='center', 
+                            va='bottom'
+                        )
+            else:
+                self.cost_comparison_canvas.axes.text(0.5, 0.5, 'No cost data available', ha='center', va='center')
+            
+            self.cost_comparison_canvas.fig.tight_layout()
+            self.cost_comparison_canvas.draw()
+            
+            # Update table
+            self.cost_table.setRowCount(len(grouped_data))
+            
+            for i, (name, data) in enumerate(grouped_data.items()):
+                total_cost = data['material_cost'] + data['electricity_cost']
+                
+                self.cost_table.setItem(i, 0, QTableWidgetItem(name))
+                self.cost_table.setItem(i, 1, QTableWidgetItem(str(data['total_jobs'])))
+                self.cost_table.setItem(i, 2, QTableWidgetItem(f"{data['total_hours']:.1f}"))
+                self.cost_table.setItem(i, 3, QTableWidgetItem(f"${data['material_cost']:.2f}"))
+                self.cost_table.setItem(i, 4, QTableWidgetItem(f"${data['electricity_cost']:.2f}"))
+                self.cost_table.setItem(i, 5, QTableWidgetItem(f"${total_cost:.2f}"))
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to generate cost analysis report: {str(e)}")

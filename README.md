@@ -231,3 +231,25 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 -  SQLAlchemy for database operations
 -  Matplotlib for data visualization
 -  The 3D printing community for inspiration and feedback
+
+## Testing
+
+The application includes a comprehensive test suite to verify functionality. To run all tests:
+
+```
+python run_tests.py
+```
+
+To run only the cost calculation tests:
+
+```
+python run_cost_tests.py
+```
+
+The test suite includes:
+
+-  Database functionality tests
+-  Schema model tests
+-  UI component tests
+-  Cost calculation tests
+-  Cost analysis UI tests

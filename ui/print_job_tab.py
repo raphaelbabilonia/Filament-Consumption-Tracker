@@ -31,6 +31,9 @@ class PrintJobTab(QWidget):
         # Create a placeholder for the signal that will be set by MainWindow
         self.job_updated_signal = None
         
+        # Use the global electricity cost setting from the database
+        self.electricity_cost_per_kwh = self.db_handler.get_electricity_cost()
+        
         self.setup_ui()
         self.load_print_jobs()
         
@@ -259,11 +262,25 @@ class PrintJobTab(QWidget):
         self.filament_filter.currentIndexChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.filament_filter)
         
+        # Add electricity cost setting
+        electricity_cost_layout = QHBoxLayout()
+        electricity_cost_layout.addWidget(QLabel("Electricity Cost per kWh:"))
+        self.electricity_cost_input = QDoubleSpinBox()
+        self.electricity_cost_input.setRange(0.01, 10.0)
+        self.electricity_cost_input.setDecimals(2)
+        self.electricity_cost_input.setValue(self.electricity_cost_per_kwh)
+        self.electricity_cost_input.setSingleStep(0.01)
+        self.electricity_cost_input.valueChanged.connect(self.update_electricity_cost)
+        electricity_cost_layout.addWidget(self.electricity_cost_input)
+        electricity_cost_layout.addStretch()
+        bottom_layout.addLayout(electricity_cost_layout)
+        
         # Create table for displaying print jobs
         self.print_job_table = QTableWidget()
-        self.print_job_table.setColumnCount(8)
+        self.print_job_table.setColumnCount(11)  # Increased from 8 to 11 for cost columns
         self.print_job_table.setHorizontalHeaderLabels([
-            "ID", "Date", "Project", "Filament", "Printer", "Amount (g)", "Duration (h)", "Notes"
+            "ID", "Date", "Project", "Filament", "Printer", "Amount (g)", "Duration (h)", 
+            "Material Cost", "Electricity Cost", "Total Cost", "Notes"
         ])
         
         # Set column widths
@@ -275,7 +292,10 @@ class PrintJobTab(QWidget):
         self.print_job_table.setColumnWidth(4, 150)  # Printer
         self.print_job_table.setColumnWidth(5, 80)   # Amount
         self.print_job_table.setColumnWidth(6, 80)   # Duration
-        self.print_job_table.setColumnWidth(7, 200)  # Notes
+        self.print_job_table.setColumnWidth(7, 100)  # Material Cost
+        self.print_job_table.setColumnWidth(8, 100)  # Electricity Cost
+        self.print_job_table.setColumnWidth(9, 100)  # Total Cost
+        self.print_job_table.setColumnWidth(10, 200) # Notes
         
         # Add button to delete print jobs
         delete_button_layout = QHBoxLayout()
@@ -601,17 +621,23 @@ class PrintJobTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add print job: {str(e)}")
     
-    def load_print_jobs(self, filament_id=None, printer_id=None):
-        """Load print jobs from database and display in table."""
+    def load_print_jobs(self, filament_id=None, printer_id=None, project_name=None, start_date=None, end_date=None):
+        """Load print jobs from database with optional filtering."""
         try:
+            # Get the latest electricity cost setting
+            self.electricity_cost_per_kwh = self.db_handler.get_electricity_cost()
+            
             # Save current sort state
             sort_column = self.print_job_table.horizontalHeader().sortIndicatorSection()
             sort_order = self.print_job_table.horizontalHeader().sortIndicatorOrder()
             
-            # Get print jobs with optional filtering
+            # Get print jobs with optional filters
             print_jobs = self.db_handler.get_print_jobs(
+                project_name=project_name,
                 filament_id=filament_id,
-                printer_id=printer_id
+                printer_id=printer_id,
+                start_date=start_date,
+                end_date=end_date
             )
             
             # Temporarily disable sorting
@@ -684,14 +710,63 @@ class PrintJobTab(QWidget):
                 duration_item.setData(Qt.DisplayRole, float(job.duration))  # For proper numeric sorting
                 self.print_job_table.setItem(row, 6, duration_item)
                 
+                # Calculate material cost
+                material_cost = 0.0
+                
+                # Calculate primary filament cost
+                if job.filament and job.filament.price is not None and job.filament.spool_weight:
+                    # Calculate cost per gram
+                    cost_per_gram = job.filament.price / job.filament.spool_weight
+                    material_cost += cost_per_gram * job.filament_used
+                
+                # Calculate secondary filaments cost
+                if job.filament_id_2 and job.filament_2 and job.filament_2.price is not None and job.filament_2.spool_weight:
+                    cost_per_gram = job.filament_2.price / job.filament_2.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_2
+                
+                if job.filament_id_3 and job.filament_3 and job.filament_3.price is not None and job.filament_3.spool_weight:
+                    cost_per_gram = job.filament_3.price / job.filament_3.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_3
+                
+                if job.filament_id_4 and job.filament_4 and job.filament_4.price is not None and job.filament_4.spool_weight:
+                    cost_per_gram = job.filament_4.price / job.filament_4.spool_weight
+                    material_cost += cost_per_gram * job.filament_used_4
+                
+                # Set material cost
+                material_cost_item = QTableWidgetItem()
+                material_cost_item.setData(Qt.DisplayRole, float(material_cost))  # For proper numeric sorting
+                material_cost_item.setText(f"${material_cost:.2f}")
+                self.print_job_table.setItem(row, 7, material_cost_item)
+                
+                # Calculate electricity cost
+                electricity_cost = 0.0
+                if job.printer and hasattr(job.printer, 'power_consumption') and job.printer.power_consumption > 0:
+                    # Power consumption is in kWh, duration in hours
+                    electricity_cost = job.printer.power_consumption * job.duration * self.electricity_cost_per_kwh
+                
+                # Set electricity cost
+                electricity_cost_item = QTableWidgetItem()
+                electricity_cost_item.setData(Qt.DisplayRole, float(electricity_cost))  # For proper numeric sorting
+                electricity_cost_item.setText(f"${electricity_cost:.2f}")
+                self.print_job_table.setItem(row, 8, electricity_cost_item)
+                
+                # Calculate total cost
+                total_cost = material_cost + electricity_cost
+                
+                # Set total cost
+                total_cost_item = QTableWidgetItem()
+                total_cost_item.setData(Qt.DisplayRole, float(total_cost))  # For proper numeric sorting
+                total_cost_item.setText(f"${total_cost:.2f}")
+                self.print_job_table.setItem(row, 9, total_cost_item)
+                
                 # Set notes
-                self.print_job_table.setItem(row, 7, QTableWidgetItem(job.notes or ""))
+                self.print_job_table.setItem(row, 10, QTableWidgetItem(job.notes or ""))
             
             # Re-enable sorting and restore previous sort state
             self.print_job_table.setSortingEnabled(True)
             if sort_column >= 0:  # If there was a previous sort
                 self.print_job_table.sortByColumn(sort_column, sort_order)
-                
+            
             # Apply any active filters
             search_text = self.search_box.text().strip()
             if search_text:
@@ -803,45 +878,50 @@ class PrintJobTab(QWidget):
     def export_to_csv(self):
         """Export print jobs to a CSV file."""
         try:
-            # Ask user for file location
-            file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "Export Print Jobs",
-                os.path.expanduser("~/Documents/print_jobs.csv"),
-                "CSV Files (*.csv)"
+            # Get file save location
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save CSV File", "", "CSV Files (*.csv)"
             )
             
-            if not file_name:  # User canceled
-                return
+            if not file_path:
+                return  # User cancelled
                 
-            # Get current data from table, respecting any filters
+            # Ensure the file has .csv extension
+            if not file_path.endswith('.csv'):
+                file_path += '.csv'
+                
+            # Prepare headers and rows
             rows = []
             headers = ["ID", "Date", "Project", "Filament", "Printer", 
-                      "Amount Used (g)", "Duration (h)", "Notes"]
+                       "Amount Used (g)", "Duration (h)", "Material Cost", "Electricity Cost", "Total Cost", "Notes"]
             
             # Collect visible rows only
             for row in range(self.print_job_table.rowCount()):
                 if not self.print_job_table.isRowHidden(row):
                     row_data = []
-                    for col in range(self.print_job_table.columnCount()):
+                    for col in range(11):  # Updated from 8 to 11
                         item = self.print_job_table.item(row, col)
-                        row_data.append(item.text() if item is not None else "")
+                        if item:
+                            # For cost columns, remove the $ sign
+                            if col in [7, 8, 9]:  # Material cost, electricity cost, total cost
+                                text = item.text().replace('$', '')
+                            else:
+                                text = item.text()
+                            row_data.append(text)
+                        else:
+                            row_data.append("")
                     rows.append(row_data)
             
             # Write to CSV
-            with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
+            with open(file_path, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(headers)
                 writer.writerows(rows)
                 
-            QMessageBox.information(
-                self, 
-                "Export Successful", 
-                f"{len(rows)} print job records exported to {file_name}"
-            )
+            QMessageBox.information(self, "Success", f"Successfully exported {len(rows)} print jobs to {file_path}")
             
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"Failed to export print jobs: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to export CSV: {str(e)}")
     
     def toggle_multicolor(self, state):
         """Toggle visibility of secondary filament fields."""
@@ -939,3 +1019,8 @@ class PrintJobTab(QWidget):
                     combo.addItem(display_text, filament.id)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to filter filaments: {str(e)}")
+    
+    def update_electricity_cost(self):
+        """Update the electricity cost per kWh and refresh the table."""
+        self.electricity_cost_per_kwh = self.electricity_cost_input.value()
+        self.load_print_jobs()  # Reload jobs to update costs

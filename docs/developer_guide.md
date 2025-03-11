@@ -149,13 +149,33 @@ class FilamentLinkGroup:
 ### FilamentLink Table
 
 ```python
-class FilamentLink:
-    id: Integer (PK)
-    group_id: Integer (FK)
-    type: String(20)
-    color: String(50)
-    brand: String(50)
+class FilamentLink(Base):
+    """Table for storing linked filaments within a group."""
+    __tablename__ = 'filament_links'
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey('filament_link_groups.id'), nullable=False)
+    type = Column(String(20), nullable=False)  # PLA, ABS, etc.
+    color = Column(String(50), nullable=False)
+    brand = Column(String(50), nullable=False)
+
+    # Relationship with group
+    group = relationship("FilamentLinkGroup", back_populates="filament_links")
 ```
+
+### AppSettings Table
+
+```python
+class AppSettings(Base):
+    """Table for storing application settings."""
+    __tablename__ = 'app_settings'
+
+    id = Column(Integer, primary_key=True)
+    setting_key = Column(String(50), nullable=False, unique=True)
+    setting_value = Column(String(255), nullable=False)
+```
+
+The AppSettings table is used to store global application settings such as the electricity cost per kWh. Settings are stored as key-value pairs.
 
 ### Printer Table
 
@@ -234,6 +254,12 @@ remove_filament_from_link_group(group_id, filament_type, color, brand)
 # Retrieving group data
 get_filament_link_groups()
 get_filament_link_group(group_id)
+
+# Global settings management
+get_setting(key, default=None)              # Get a setting value by key
+set_setting(key, value)                     # Set a setting value by key
+get_electricity_cost()                      # Get the global electricity cost per kWh
+set_electricity_cost(cost)                  # Set the global electricity cost per kWh
 ```
 
 #### Inventory Status Algorithm
@@ -401,6 +427,15 @@ The print job tracking interface is implemented in `print_job_tab.py` and includ
 -  Duration is stored in the database as decimal hours for compatibility
 -  Display format in the table uses "Xh Ym" format for readability
 
+#### Cost Calculation
+
+-  Material cost is calculated based on filament price and amount used
+-  Electricity cost is calculated using the formula: `power_consumption (kW) * duration (h) * electricity_cost_per_kwh`
+-  The global electricity cost per kWh is retrieved from the `AppSettings` table
+-  Total cost is the sum of material and electricity costs
+-  The `update_electricity_cost` method refreshes cost calculations when the global setting changes
+-  All costs are displayed with currency symbols in the UI but exported without symbols in CSV for compatibility
+
 #### Key Methods
 
 -  `toggle_multicolor(state)`: Controls visibility of the secondary filament section
@@ -408,6 +443,49 @@ The print job tracking interface is implemented in `print_job_tab.py` and includ
 -  `filter_secondary_filaments(search_text, combo_number)`: Filters the secondary filament dropdowns
 -  `add_print_job()`: Handles saving print job data to the database
 -  `load_print_jobs()`: Populates the job history table with formatted data
+
+### Printer Tab
+
+The printer management interface is implemented in `printer_tab.py` and provides features for managing printers and their components.
+
+#### Printer Information
+
+-  Basic printer information includes name, model, and notes
+-  Power consumption in kWh is stored for electricity cost calculations
+-  Each printer can have multiple components for maintenance tracking
+
+#### Global Electricity Cost Setting
+
+-  The "Set Electricity Cost" button allows setting the global electricity cost per kWh
+-  This setting is stored in the `AppSettings` table
+-  The `set_electricity_cost` method displays a dialog for entering the cost
+-  All cost calculations throughout the application use this global setting
+-  Changes to this setting are immediately reflected in reports and cost calculations
+
+#### Key Methods
+
+```python
+# Key methods in printer_tab.py
+add_printer()                   # Adds a new printer
+edit_printer()                  # Edits an existing printer
+delete_printer()                # Removes a printer from the database
+add_component()                 # Adds a component to a printer
+reset_component_usage()         # Resets component usage hours
+remove_component()              # Removes a component
+set_electricity_cost()          # Sets the global electricity cost per kWh
+```
+
+### Reports Tab
+
+The reports and analytics interface is implemented in `reports_tab.py` and provides features for generating reports and visualizing data.
+
+#### Key Methods
+
+```python
+# Key methods in reports_tab.py
+generate_report()                # Generates a report based on selected parameters
+export_to_csv()                  # Exports report data to CSV
+```
 
 ## Common Issues & Solutions
 
