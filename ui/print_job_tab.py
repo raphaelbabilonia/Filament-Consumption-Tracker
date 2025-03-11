@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QLineEdit, QTextEdit, QMessageBox, QInputDialog,
                              QHeaderView, QFormLayout, QDateEdit, QComboBox,
                              QDoubleSpinBox, QDateTimeEdit, QSplitter, QFileDialog,
-                             QCheckBox, QFrame, QSpinBox)
+                             QCheckBox, QFrame, QSpinBox, QMenu, QAction)
 from PyQt5.QtCore import Qt, QDateTime
 
 from database.db_handler import DatabaseHandler
@@ -339,6 +339,10 @@ class PrintJobTab(QWidget):
         self.refresh_filament_button = QPushButton("Refresh Filament Data")
         self.refresh_filament_button.clicked.connect(self.refresh_filament_data)
         form_layout.addRow("", self.refresh_filament_button)
+        
+        # Add context menu to print job table
+        self.print_job_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.print_job_table.customContextMenuRequested.connect(self.show_context_menu)
         
     def refresh_filament_data(self):
         """Refresh filament data from database."""
@@ -1024,3 +1028,137 @@ class PrintJobTab(QWidget):
         """Update the electricity cost per kWh and refresh the table."""
         self.electricity_cost_per_kwh = self.electricity_cost_input.value()
         self.load_print_jobs()  # Reload jobs to update costs
+    
+    def show_context_menu(self, position):
+        """Display context menu for the print job table."""
+        context_menu = QMenu()
+        populate_action = QAction("Use as template for new job", self)
+        populate_action.triggered.connect(self.populate_form_from_selected_job)
+        context_menu.addAction(populate_action)
+        
+        # Only show menu if a row is selected
+        if self.print_job_table.currentRow() >= 0:
+            context_menu.exec_(self.print_job_table.viewport().mapToGlobal(position))
+    
+    def populate_form_from_selected_job(self):
+        """Populate the 'Record New Print Job' form with data from the selected job."""
+        try:
+            row = self.print_job_table.currentRow()
+            if row < 0:
+                return
+                
+            job_id = int(self.print_job_table.item(row, 0).text())
+            
+            # Get the full job details from the database
+            job = self.db_handler.get_print_job_by_id(job_id)
+            if not job:
+                QMessageBox.warning(self, "Error", "Could not retrieve job information")
+                return
+                
+            # Populate project name
+            self.project_name_input.setText(job.project_name)
+            
+            # Set printer
+            printer_index = self.printer_combo.findData(job.printer_id)
+            if printer_index >= 0:
+                self.printer_combo.setCurrentIndex(printer_index)
+                
+            # Set filament search and select primary filament - use just the color for better search results
+            if job.filament:
+                # Use just the color for searching, as it's more specific and likely to match
+                search_text = job.filament.color
+                self.primary_filament_search.setText(search_text)
+                
+                # Wait for the filter to apply
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(100, lambda: self.select_filament_by_id(job.filament_id))
+                
+            # Set amount used
+            self.filament_used_input.setValue(job.filament_used)
+            
+            # Set print duration - convert the hours float to hours and minutes
+            if job.duration is not None:
+                hours = int(job.duration)  # Integer part is hours
+                minutes = int((job.duration - hours) * 60)  # Fractional part converted to minutes
+                self.hours_input.setValue(hours)
+                self.minutes_input.setValue(minutes)
+                
+            # Set notes
+            if job.notes:
+                self.notes_input.setPlainText(job.notes)
+                
+            # Handle multicolor print if applicable
+            has_secondary_filaments = (job.filament_id_2 is not None or 
+                                      job.filament_id_3 is not None or 
+                                      job.filament_id_4 is not None)
+            
+            if has_secondary_filaments:
+                self.multicolor_checkbox.setChecked(True)
+                
+                # Count how many additional filaments
+                additional_count = 0
+                if job.filament_id_2: additional_count += 1
+                if job.filament_id_3: additional_count += 1
+                if job.filament_id_4: additional_count += 1
+                
+                self.additional_filaments_spinner.setValue(additional_count)
+                
+                # Set secondary filaments after a short delay to let the UI update
+                QTimer.singleShot(200, lambda: self.set_secondary_filaments(job))
+                
+            QMessageBox.information(self, "Template Applied", 
+                                   "The selected job has been used as a template for the new job form.")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to populate form: {str(e)}")
+    
+    def select_filament_by_id(self, filament_id):
+        """Select a filament in the combo box by its ID."""
+        for i in range(self.filament_combo.count()):
+            if self.filament_combo.itemData(i) == filament_id:
+                self.filament_combo.setCurrentIndex(i)
+                return
+    
+    def set_secondary_filaments(self, job):
+        """Set secondary filaments for a multicolor job."""
+        # Second filament
+        if job.filament_id_2 and job.filament_2:
+            # Use just the color for searching
+            search_text = job.filament_2.color
+            self.filament_search_2.setText(search_text)
+            
+            # Find and select the filament in the combo
+            for i in range(self.filament_combo_2.count()):
+                if self.filament_combo_2.itemData(i) == job.filament_id_2:
+                    self.filament_combo_2.setCurrentIndex(i)
+                    break
+                    
+            self.filament_used_input_2.setValue(job.filament_used_2 or 0)
+            
+        # Third filament
+        if job.filament_id_3 and job.filament_3:
+            # Use just the color for searching
+            search_text = job.filament_3.color
+            self.filament_search_3.setText(search_text)
+            
+            # Find and select the filament in the combo
+            for i in range(self.filament_combo_3.count()):
+                if self.filament_combo_3.itemData(i) == job.filament_id_3:
+                    self.filament_combo_3.setCurrentIndex(i)
+                    break
+                    
+            self.filament_used_input_3.setValue(job.filament_used_3 or 0)
+            
+        # Fourth filament
+        if job.filament_id_4 and job.filament_4:
+            # Use just the color for searching
+            search_text = job.filament_4.color
+            self.filament_search_4.setText(search_text)
+            
+            # Find and select the filament in the combo
+            for i in range(self.filament_combo_4.count()):
+                if self.filament_combo_4.itemData(i) == job.filament_id_4:
+                    self.filament_combo_4.setCurrentIndex(i)
+                    break
+                    
+            self.filament_used_input_4.setValue(job.filament_used_4 or 0)

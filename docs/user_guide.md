@@ -178,16 +178,32 @@ The multicolor feature enables tracking of up to 3 additional filaments per prin
 
 -  All print jobs are displayed in the table below the entry form
 -  The date column displays dates in dd/mm/yy format for easy reading
--  The duration column shows print times in hours and minutes (e.g., "2h 30m")
--  Cost information is displayed for each job:
-   -  Material Cost: calculated from filament price and amount used
-   -  Electricity Cost: calculated from printer power consumption, duration, and global electricity cost setting
-   -  Total Cost: sum of material and electricity costs
--  You can filter jobs by:
-   -  Using the search box to find projects, filaments, or printers
-   -  Using dropdown filters for specific printers or filament types
--  You can refresh filament data using the "Refresh Filament Data" button
--  The table can be sorted by clicking on any column header
+-  You can sort the table by clicking on any column header
+-  Use the search and filter controls to find specific jobs
+-  Total costs are calculated and displayed based on material cost and electricity usage
+
+### Using Existing Jobs as Templates
+
+The application allows you to use existing print jobs as templates for new ones:
+
+1. In the print job history table, right-click on any job you want to use as a template
+2. Select "Use as template for new job" from the context menu
+3. The "Record New Print Job" form will be populated with all details from the selected job:
+   -  Project name
+   -  Printer selection
+   -  Primary and additional filaments (if multicolor)
+   -  Amount of filament(s) used
+   -  Print duration
+   -  Notes
+4. Review and modify any details as needed
+5. Click "Add Print Job" to create a new job based on this template
+
+This feature is particularly useful when:
+
+-  Creating similar print jobs with minor modifications
+-  Recording multiple prints of the same model
+-  Testing different settings with the same model
+-  Using the same project with different filament colors
 
 ### Exporting Data
 

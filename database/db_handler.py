@@ -551,6 +551,21 @@ class DatabaseHandler:
         finally:
             session.close()
     
+    def get_print_job_by_id(self, job_id):
+        """Get a single print job by its ID."""
+        session = self.Session()
+        try:
+            # Use joinedload to eagerly load the relationships to prevent lazy loading errors
+            return session.query(PrintJob).options(
+                joinedload(PrintJob.filament),
+                joinedload(PrintJob.printer),
+                joinedload(PrintJob.filament_2),
+                joinedload(PrintJob.filament_3),
+                joinedload(PrintJob.filament_4)
+            ).filter_by(id=job_id).first()
+        finally:
+            session.close()
+    
     def get_filament_usage_by_type(self):
         """Get filament usage statistics by type."""
         session = self.Session()

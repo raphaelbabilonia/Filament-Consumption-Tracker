@@ -19,6 +19,7 @@ A comprehensive desktop application for 3D printing enthusiasts to track filamen
    -  Project-based organization
    -  Comprehensive print history
    -  Powerful search and filter system
+   -  Use existing jobs as templates for new ones via right-click functionality
 
 -  **Printer Management**
 
@@ -45,6 +46,13 @@ A comprehensive desktop application for 3D printing enthusiasts to track filamen
    -  Automatic database versioning
 
 ## Recent Updates
+
+### Version 1.4.2
+
+-  **Template Feature for Print Jobs**
+   -  Added right-click functionality to print job history table
+   -  Use existing print jobs as templates for new ones
+   -  Quickly duplicate project settings, filament selections, and durations
 
 ### Version 1.4.1
 
@@ -203,6 +211,16 @@ For detailed information about using and developing the application, please refe
 ### Print Job Tracking
 
 [Screenshot of print job recording interface]
+
+The Print Job Tracking interface allows users to record, manage, and analyze their 3D print jobs. Key features include:
+
+-  **Recording new print jobs** with details on project name, printer used, filament(s), material quantity, and print duration
+-  **Multicolor print support** with up to four different filaments per job
+-  **Comprehensive history view** with sorting and filtering capabilities
+-  **Template functionality** via right-click in job history:
+   -  Right-click on any existing job to use it as a template for a new job
+   -  All details including project name, printer, filament(s), quantities, and duration are copied
+   -  Particularly useful when creating multiple similar print jobs or reprinting the same model with different filaments
 
 ### Reports and Analytics
 
