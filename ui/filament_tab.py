@@ -760,10 +760,10 @@ class FilamentTab(QWidget):
         
         # Create table for displaying inventory status
         self.status_table = QTableWidget()
-        self.status_table.setColumnCount(7)
+        self.status_table.setColumnCount(8)
         self.status_table.setHorizontalHeaderLabels([
             "Type", "Color", "Brand", "Current (g)", 
-            "Ideal (g)", "Difference (g)", "Status"
+            "Ideal (g)", "Difference (g)", "Status", "Group"
         ])
         
         # Enable sorting for status table
@@ -932,128 +932,176 @@ class FilamentTab(QWidget):
         pass
         
     def load_filaments(self):
-        """Load filaments from database and display in table."""
+        """Load filaments from database."""
         try:
             filaments = self.db_handler.get_filaments()
+            
+            # Save current sort column and order
+            sort_column = self.filament_table.horizontalHeader().sortIndicatorSection()
+            sort_order = self.filament_table.horizontalHeader().sortIndicatorOrder()
+            
+            # Temporarily disable sorting
+            self.filament_table.setSortingEnabled(False)
+            
             self.filament_table.setRowCount(len(filaments))
             
             for row, filament in enumerate(filaments):
-                # Set ID (hidden)
+                # ID column
                 id_item = QTableWidgetItem(str(filament.id))
+                id_item.setData(Qt.DisplayRole, filament.id)  # For proper numeric sorting
                 self.filament_table.setItem(row, 0, id_item)
                 
-                # Set filament details
+                # Type column
                 self.filament_table.setItem(row, 1, QTableWidgetItem(filament.type))
+                
+                # Color column
                 self.filament_table.setItem(row, 2, QTableWidgetItem(filament.color))
+                
+                # Brand column
                 self.filament_table.setItem(row, 3, QTableWidgetItem(filament.brand))
                 
-                # Use QTableWidgetItem for numerical values to enable proper sorting
-                quantity_item = QTableWidgetItem()
-                quantity_item.setData(Qt.DisplayRole, filament.quantity_remaining)
-                self.filament_table.setItem(row, 4, quantity_item)
+                # Quantity remaining column
+                qty_remaining_item = QTableWidgetItem()
+                qty_remaining_item.setData(Qt.DisplayRole, float(filament.quantity_remaining))
+                qty_remaining_item.setText(f"{filament.quantity_remaining:.1f}")
+                self.filament_table.setItem(row, 4, qty_remaining_item)
                 
+                # Spool weight column
                 spool_weight_item = QTableWidgetItem()
-                spool_weight_item.setData(Qt.DisplayRole, filament.spool_weight)
+                spool_weight_item.setData(Qt.DisplayRole, float(filament.spool_weight))
+                spool_weight_item.setText(f"{filament.spool_weight:.1f}")
                 self.filament_table.setItem(row, 5, spool_weight_item)
                 
-                # Price may be None
-                price_item = QTableWidgetItem()
-                if filament.price is not None:
-                    price_item.setData(Qt.DisplayRole, filament.price)
-                    price_item.setText(f"${filament.price:.2f}")
+                # Percentage remaining column
+                if filament.spool_weight > 0:
+                    percentage = (filament.quantity_remaining / filament.spool_weight) * 100
                 else:
-                    price_item.setText("N/A")
-                self.filament_table.setItem(row, 6, price_item)
+                    percentage = 0
+                    
+                percentage_item = QTableWidgetItem()
+                percentage_item.setData(Qt.DisplayRole, float(percentage))
+                percentage_item.setText(f"{percentage:.1f}%")
+                self.filament_table.setItem(row, 6, percentage_item)
                 
-                # Format date
-                date_item = QTableWidgetItem()
-                if filament.purchase_date:
-                    date_str = filament.purchase_date.strftime("%Y-%m-%d")
-                    # Store as ISO format for proper sorting
-                    date_item.setData(Qt.UserRole, filament.purchase_date.isoformat())
-                    date_item.setText(date_str)
+                # Price column
+                if filament.price:
+                    price_item = QTableWidgetItem()
+                    price_item.setData(Qt.DisplayRole, float(filament.price))
+                    price_item.setText(f"{filament.price:.2f}")
+                    self.filament_table.setItem(row, 7, price_item)
                 else:
-                    date_item.setText("N/A")
-                self.filament_table.setItem(row, 7, date_item)
+                    self.filament_table.setItem(row, 7, QTableWidgetItem("N/A"))
                 
-                # Color code filament quantities based on percentage remaining
-                remaining_percentage = filament.quantity_remaining / filament.spool_weight * 100
+                # Color code rows based on percentage
+                self._apply_colors_to_filament_row(row, percentage)
+            
+            # Re-enable sorting and restore previous sort
+            self.filament_table.setSortingEnabled(True)
+            if sort_column >= 0:
+                self.filament_table.sortByColumn(sort_column, sort_order)
                 
-                # Improved color coding based on remaining percentage, in 20% increments
-                for col in range(1, 8):
-                    item = self.filament_table.item(row, col)
-                
-                    if remaining_percentage > 80:
-                        item.setBackground(QColor(200, 255, 200))  # Very Light Green (81-100%)
-                    elif remaining_percentage > 60:
-                        item.setBackground(QColor(220, 245, 255))  # Very Light Cyan (61-80%)
-                    elif remaining_percentage > 40:
-                        item.setBackground(QColor(255, 250, 200))  # Very Light Yellow (41-60%)
-                    elif remaining_percentage > 20:
-                        item.setBackground(QColor(255, 220, 180))  # Very Light Orange (21-40%)
-                    else:
-                        item.setBackground(QColor(255, 200, 200))  # Very Light Red (0-20%)
-                
-            # Update dropdowns with current values
-            self.populate_dynamic_dropdowns()
+            # Refresh filters after loading
+            self.filter_filament_table()
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load filaments: {str(e)}")
+            
+    def _apply_colors_to_filament_row(self, row, percentage):
+        """Apply color coding to a filament table row based on percentage remaining."""
+        # Apply color to each cell in the row
+        for col in range(self.filament_table.columnCount()):
+            cell_item = self.filament_table.item(row, col)
+            if cell_item:
+                color = self._get_status_color(percentage)
+                cell_item.setBackground(color)
     
     def load_aggregated_inventory(self):
         """Load aggregated filament inventory from database."""
         try:
+            # Get aggregated inventory data
             inventory = self.db_handler.get_aggregated_filament_inventory()
+            
+            if not inventory:
+                # Clear the table if no inventory data
+                self.aggregated_table.setRowCount(0)
+                return
+                
+            # Save current sort column and order
+            sort_column = self.aggregated_table.horizontalHeader().sortIndicatorSection()
+            sort_order = self.aggregated_table.horizontalHeader().sortIndicatorOrder()
+            
+            # Temporarily disable sorting to prevent unnecessary sorts during data loading
+            self.aggregated_table.setSortingEnabled(False)
+            
+            # Set table row count
             self.aggregated_table.setRowCount(len(inventory))
             
             for row, item in enumerate(inventory):
-                # Set filament details
-                self.aggregated_table.setItem(row, 0, QTableWidgetItem(item['type']))
-                self.aggregated_table.setItem(row, 1, QTableWidgetItem(item['color']))
-                self.aggregated_table.setItem(row, 2, QTableWidgetItem(item['brand']))
-                
-                # Set quantities
-                total_qty_item = QTableWidgetItem()
-                total_qty_item.setData(Qt.DisplayRole, item['total_quantity'])
-                total_qty_item.setText(f"{item['total_quantity']:.1f}")
-                self.aggregated_table.setItem(row, 3, total_qty_item)
-                
-                remaining_qty_item = QTableWidgetItem()
-                remaining_qty_item.setData(Qt.DisplayRole, item['quantity_remaining'])
-                remaining_qty_item.setText(f"{item['quantity_remaining']:.1f}")
-                self.aggregated_table.setItem(row, 4, remaining_qty_item)
-                
-                percent_item = QTableWidgetItem()
-                percent_item.setData(Qt.DisplayRole, item['percentage_remaining'])
-                percent_item.setText(f"{item['percentage_remaining']:.1f}%")
-                self.aggregated_table.setItem(row, 5, percent_item)
-                
-                # Set spool count
-                spools_item = QTableWidgetItem()
-                spools_item.setData(Qt.DisplayRole, item['spool_count'])
-                spools_item.setText(str(item['spool_count']))
-                self.aggregated_table.setItem(row, 6, spools_item)
-                
-                # Color code filament quantities based on percentage remaining
-                remaining_percentage = item['quantity_remaining'] / item['total_quantity'] * 100
-                
-                # Improved color coding based on remaining percentage, in 20% increments
-                for col in range(7):
-                    item = self.aggregated_table.item(row, col)
-                
-                    if remaining_percentage > 80:
-                        item.setBackground(QColor(200, 255, 200))  # Very Light Green (81-100%)
-                    elif remaining_percentage > 60:
-                        item.setBackground(QColor(220, 245, 255))  # Very Light Cyan (61-80%)
-                    elif remaining_percentage > 40:
-                        item.setBackground(QColor(255, 250, 200))  # Very Light Yellow (41-60%)
-                    elif remaining_percentage > 20:
-                        item.setBackground(QColor(255, 220, 180))  # Very Light Orange (21-40%)
+                try:
+                    # Set filament details
+                    self.aggregated_table.setItem(row, 0, QTableWidgetItem(item['type']))
+                    self.aggregated_table.setItem(row, 1, QTableWidgetItem(item['color']))
+                    self.aggregated_table.setItem(row, 2, QTableWidgetItem(item['brand']))
+                    
+                    # Set quantities with proper data to ensure correct sorting
+                    total_qty_item = QTableWidgetItem()
+                    total_qty_item.setData(Qt.DisplayRole, float(item['total_quantity']))
+                    total_qty_item.setText(f"{item['total_quantity']:.1f}")
+                    self.aggregated_table.setItem(row, 3, total_qty_item)
+                    
+                    remaining_qty_item = QTableWidgetItem()
+                    remaining_qty_item.setData(Qt.DisplayRole, float(item['quantity_remaining']))
+                    remaining_qty_item.setText(f"{item['quantity_remaining']:.1f}")
+                    self.aggregated_table.setItem(row, 4, remaining_qty_item)
+                    
+                    percent_item = QTableWidgetItem()
+                    percentage_remaining = float(item.get('percentage_remaining', 0))
+                    percent_item.setData(Qt.DisplayRole, percentage_remaining)
+                    percent_item.setText(f"{percentage_remaining:.1f}%")
+                    self.aggregated_table.setItem(row, 5, percent_item)
+                    
+                    # Set spool count with proper sorting data
+                    spools_item = QTableWidgetItem()
+                    spool_count = int(item.get('spool_count', 0))
+                    spools_item.setData(Qt.DisplayRole, spool_count)
+                    spools_item.setText(str(spool_count))
+                    self.aggregated_table.setItem(row, 6, spools_item)
+                    
+                    # Color code filament quantities based on percentage remaining
+                    # Handle possible division by zero or missing data
+                    if item.get('total_quantity', 0) > 0:
+                        remaining_percentage = (float(item.get('quantity_remaining', 0)) / 
+                                           float(item.get('total_quantity', 1)) * 100)
                     else:
-                        item.setBackground(QColor(255, 200, 200))  # Very Light Red (0-20%)
+                        remaining_percentage = 0
+                    
+                    # Apply color coding for all cells in the row
+                    self._apply_colors_to_row(row, remaining_percentage)
+                    
+                except Exception as row_exception:
+                    print(f"Error processing aggregated inventory row {row}: {str(row_exception)}")
+                    continue
+            
+            # Re-enable sorting and restore previous sort (if any)
+            self.aggregated_table.setSortingEnabled(True)
+            if sort_column >= 0:  # If a column was previously sorted
+                self.aggregated_table.sortByColumn(sort_column, sort_order)
                 
         except Exception as e:
+            print(f"Error loading aggregated inventory: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load aggregated inventory: {str(e)}")
+            # Clear the table on error to avoid showing incorrect data
+            self.aggregated_table.setRowCount(0)
+            
+    def _apply_colors_to_row(self, row, percentage, is_group=False):
+        """Apply color coding to all cells in a row based on percentage."""
+        for col in range(7):
+            cell_item = self.aggregated_table.item(row, col)
+            if not cell_item:
+                continue
+                
+            color = self._get_status_color(percentage)
+            cell_item.setBackground(color)
     
     def add_filament(self):
         """Add a new filament to inventory."""
@@ -1101,6 +1149,7 @@ class FilamentTab(QWidget):
             # Reload tables and dynamic dropdowns
             self.load_filaments()
             self.load_aggregated_inventory()
+            self.refresh_inventory_status()  # Refresh inventory status table
             self.populate_dynamic_dropdowns()  # This will refresh all dropdowns including types
             
             if spool_count > 1:
@@ -1179,6 +1228,7 @@ class FilamentTab(QWidget):
                 # Reload data
                 self.load_filaments()
                 self.load_aggregated_inventory()
+                self.refresh_inventory_status()  # Refresh inventory status table
                 self.populate_dynamic_dropdowns()
                 
                 QMessageBox.information(self, "Success", "Filament updated successfully!")
@@ -1212,6 +1262,7 @@ class FilamentTab(QWidget):
                 # Reload data
                 self.load_filaments()
                 self.load_aggregated_inventory()
+                self.refresh_inventory_status()  # Refresh inventory status table
                 self.populate_dynamic_dropdowns()
                 
                 QMessageBox.information(self, "Success", "Filament deleted successfully!")
@@ -1237,20 +1288,35 @@ class FilamentTab(QWidget):
         for row in range(self.status_table.rowCount()):
             show_row = False
             
+            # Get row items for checking
+            type_item = self.status_table.item(row, 0)
+            
+            # Skip rows with no valid items
+            if not type_item:
+                continue
+                
+            # Check if this is a group row
+            is_group = type_item.font().bold()
+            
             if filter_criteria == "All" or not search_text:
                 # Check all columns
                 for col in range(self.status_table.columnCount()):
                     item = self.status_table.item(row, col)
-                    if item and search_text in item.text().lower():
+                    if item and item.text() and search_text in item.text().lower():
                         show_row = True
                         break
             else:
                 # Map filter criteria to column index
                 column_map = {"Type": 0, "Color": 1, "Brand": 2}
                 col = column_map.get(filter_criteria, 0)
-                item = self.status_table.item(row, col)
-                if item and search_text in item.text().lower():
-                    show_row = True
+                
+                # For groups, only check type column
+                if is_group and col > 0:
+                    show_row = False
+                else:
+                    item = self.status_table.item(row, col)
+                    if item and item.text() and search_text in item.text().lower():
+                        show_row = True
             
             self.status_table.setRowHidden(row, not show_row)
     
@@ -1410,164 +1476,36 @@ class FilamentTab(QWidget):
     
     def refresh_inventory_status(self, preserved_ideal_quantities=None):
         """Refresh the inventory status table and ensure colors are applied properly."""
-        # Save current selection if any
+        # Save current selection and scroll position
         current_row = self.status_table.currentRow()
         current_scroll = self.status_table.verticalScrollBar().value()
         
-        # Load the updated inventory status
-        try:
-            # Capture current ideal quantities if none were provided
-            if not preserved_ideal_quantities:
-                current_ideal_quantities = self.capture_current_ideal_quantities()
-            else:
-                current_ideal_quantities = preserved_ideal_quantities
+        # Capture current ideal quantities if none were provided
+        if not preserved_ideal_quantities:
+            current_ideal_quantities = self.capture_current_ideal_quantities()
+        else:
+            current_ideal_quantities = preserved_ideal_quantities
+        
+        # Force a complete reload of the inventory status data
+        self.load_inventory_status(current_ideal_quantities)
+        
+        # Restore selection if possible
+        if current_row >= 0 and current_row < self.status_table.rowCount():
+            self.status_table.selectRow(current_row)
             
-            # Get fresh data from database
-            inventory_status = self.db_handler.get_inventory_status()
-            
-            # Create a mapping of current table items for easier updating
-            current_items = {}
-            
-            # Before making any changes, collect information about all current table items
-            for row in range(self.status_table.rowCount()):
-                # Check for null items
-                if self.status_table.item(row, 0) is None:
-                    continue
-                    
-                # Try to identify each row by type/color/brand or group_id
-                type_item = self.status_table.item(row, 0)
-                color_item = self.status_table.item(row, 1)
-                brand_item = self.status_table.item(row, 2)
-                ideal_qty_item = self.status_table.item(row, 4)
-                
-                if type_item is None or color_item is None or brand_item is None or ideal_qty_item is None:
-                    continue
-                
-                is_group = type_item.font().bold()
-                
-                if is_group and type_item.data(Qt.UserRole) is not None:
-                    # Use group ID as key for linked groups
-                    group_id = type_item.data(Qt.UserRole)
-                    row_key = f"group_{group_id}"
-                else:
-                    # Use type/color/brand as key for individual filaments
-                    type_val = type_item.text()
-                    color_val = color_item.text()
-                    brand_val = brand_item.text()
-                    row_key = f"{type_val}_{color_val}_{brand_val}"
-                    
-                    # Store ideal quantity for individual filaments (already done in capture_current_ideal_quantities)
-                
-                # Store information about this row
-                current_items[row_key] = {
-                    'is_group': is_group,
-                    'background_colors': [
-                        self.status_table.item(row, col).background() 
-                        for col in range(7) if self.status_table.item(row, col) is not None
-                    ]
-                }
-            
-            # Apply preserved ideal quantities
-            for item in inventory_status:
-                if not item.get('is_group', False):
-                    key = (item['type'], item['color'], item['brand'])
-                    if key in current_ideal_quantities and current_ideal_quantities[key] > 0:
-                        # Update the item's ideal quantity to match what was previously set
-                        item['ideal_quantity'] = current_ideal_quantities[key]
-                        
-                        # Recalculate difference and percentage
-                        item['difference'] = item['current_quantity'] - item['ideal_quantity']
-                        if item['ideal_quantity'] > 0:
-                            item['percentage'] = (item['current_quantity'] / item['ideal_quantity'] * 100)
-                        else:
-                            item['percentage'] = None
-            
-            # If row count has changed, we need to do a full reload
-            if self.status_table.rowCount() != len(inventory_status):
-                # Full reload of the table but preserve ideal quantities
-                self.load_inventory_status(current_ideal_quantities)
-            else:
-                # Update in place while preserving existing properties
-                for row, item in enumerate(inventory_status):
-                    # First, update text values and other data
-                    is_group = item.get('is_group', False)
-                    
-                    # Determine row key
-                    if is_group:
-                        row_key = f"group_{item.get('group_id')}"
-                    else:
-                        row_key = f"{item['type']}_{item['color']}_{item['brand']}"
-                    
-                    # Update current quantity
-                    current_qty = item['current_quantity']
-                    current_qty_item = self.status_table.item(row, 3)
-                    if current_qty_item:
-                        current_qty_item.setData(Qt.DisplayRole, current_qty)
-                        current_qty_item.setText(f"{current_qty:.1f}")
-                    
-                    # Update ideal quantity
-                    ideal_qty = item['ideal_quantity']
-                    ideal_qty_item = self.status_table.item(row, 4)
-                    if ideal_qty_item:
-                        ideal_qty_item.setData(Qt.DisplayRole, ideal_qty)
-                        ideal_qty_item.setText(f"{ideal_qty:.1f}")
-                    
-                    # Update difference
-                    diff = item['difference']
-                    diff_item = self.status_table.item(row, 5)
-                    if diff_item:
-                        diff_item.setData(Qt.DisplayRole, diff)
-                        diff_item.setText(f"{diff:.1f}")
-                    
-                    # Update status text and percentage
-                    percentage = item['percentage']
-                    status_text = self.get_status_text(percentage)
-                    status_item = self.status_table.item(row, 6)
-                    if status_item:
-                        status_item.setText(status_text)
-                    
-                    # If we have color information saved for this row, restore it
-                    # Otherwise, apply new colors
-                    if row_key in current_items:
-                        saved_item = current_items[row_key]
-                        # Only restore colors if we're not changing from group to non-group or vice versa
-                        if saved_item['is_group'] == is_group and saved_item['background_colors']:
-                            # Restore saved background colors
-                            for col, bg_color in enumerate(saved_item['background_colors']):
-                                if col < 7 and self.status_table.item(row, col):
-                                    self.status_table.item(row, col).setBackground(bg_color)
-                        else:
-                            # Apply new colors
-                            self._apply_colors_to_row(row, percentage, is_group)
-                    else:
-                        # Apply new colors
-                        self._apply_colors_to_row(row, percentage, is_group)
-            
-            # Restore selection if possible
-            if current_row >= 0 and current_row < self.status_table.rowCount():
-                self.status_table.selectRow(current_row)
-                
-            # Restore scroll position
-            self.status_table.verticalScrollBar().setValue(current_scroll)
-            
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            print(f"Error refreshing inventory status: {str(e)}\n{error_details}")
-            # Fall back to full reload if update fails
-            self.load_inventory_status(current_ideal_quantities)
+        # Restore scroll position
+        self.status_table.verticalScrollBar().setValue(current_scroll)
     
-    def _apply_colors_to_row(self, row, percentage, is_group=False):
-        """Apply color coding to an entire row based on percentage."""
-        # Get base color based on percentage
-        base_color = self._get_status_color(percentage)
+    def _apply_colors_to_status_row(self, row, percentage, is_group=False):
+        """Apply color coding to a row in the status table based on percentage."""
+        color = self._get_status_color(percentage)
         
         # Apply color to all cells in the row
-        for col in range(7):
-            table_item = self.status_table.item(row, col)
-            if table_item:  # Make sure item exists before applying color
-                table_item.setBackground(base_color)
-                
+        for col in range(8):  # Include all columns
+            cell_item = self.status_table.item(row, col)
+            if cell_item:
+                cell_item.setBackground(color)
+    
     def _get_status_color(self, percentage):
         """Get the appropriate color for a given percentage."""
         if percentage is None:
@@ -1815,7 +1753,7 @@ class FilamentTab(QWidget):
             self.status_table.viewport().update()
     
     def capture_current_ideal_quantities(self):
-        """Capture current ideal quantities for all filaments - with enhanced reliability."""
+        """Capture all current ideal quantities from the status table."""
         # Dictionary to store ideal quantities
         ideal_quantities = {}
         
@@ -1873,137 +1811,131 @@ class FilamentTab(QWidget):
         return ideal_quantities
     
     def load_inventory_status(self, preserved_ideal_quantities=None):
-        """Load inventory status comparing current vs. ideal quantities."""
+        """Load inventory status data."""
         try:
-            # Get inventory status from database
+            # Save current sort settings
+            sort_column = self.status_table.horizontalHeader().sortIndicatorSection()
+            sort_order = self.status_table.horizontalHeader().sortIndicatorOrder()
+            
+            # Temporarily disable sorting
+            self.status_table.setSortingEnabled(False)
+            
+            # Get inventory status data
             inventory_status = self.db_handler.get_inventory_status()
             
-            # If we don't have preserved quantities, try to get them from the database
-            if not preserved_ideal_quantities:
-                print("No preserved quantities provided, capturing from current state")
-                preserved_ideal_quantities = self.capture_current_ideal_quantities()
-            else:
-                print(f"Using provided preserved quantities ({len(preserved_ideal_quantities)} items)")
+            if not inventory_status:
+                self.status_table.setRowCount(0)
+                return
+                
+            # Create a mapping to preserve data consistency
+            item_mapping = {}
+            for i, item in enumerate(inventory_status):
+                if item.get('is_group', False):
+                    item_mapping[f"group_{item.get('group_id')}"] = i
+                else:
+                    item_mapping[f"{item['type']}_{item['color']}_{item['brand']}"] = i
+                
+            # If preserved quantities are provided, update ideal quantities in the data
+            if preserved_ideal_quantities:
+                for item in inventory_status:
+                    if not item.get('is_group', False):
+                        key = (item['type'], item['color'], item['brand'])
+                        if key in preserved_ideal_quantities and preserved_ideal_quantities[key] > 0:
+                            # Update the item's ideal quantity to match what was previously set
+                            item['ideal_quantity'] = preserved_ideal_quantities[key]
+                            
+                            # Recalculate difference and percentage
+                            item['difference'] = item['current_quantity'] - item['ideal_quantity']
+                            if item['ideal_quantity'] > 0:
+                                item['percentage'] = (item['current_quantity'] / item['ideal_quantity'] * 100)
+                            else:
+                                item['percentage'] = None
             
-            # Apply preserved quantities to inventory status items
-            for item in inventory_status:
-                if not item.get('is_group', False):
-                    key = (item['type'], item['color'], item['brand'])
-                    
-                    # First check if we have a preserved quantity for this exact filament
-                    if key in preserved_ideal_quantities:
-                        # If database has zero but preserved is non-zero, update the database
-                        if item['ideal_quantity'] == 0 and preserved_ideal_quantities[key] > 0:
-                            print(f"Fixing ideal quantity for {key[0]} {key[1]} {key[2]} from 0g to {preserved_ideal_quantities[key]}g")
-                            # Update database
-                            self.db_handler.set_ideal_filament_quantity(
-                                key[0], key[1], key[2], preserved_ideal_quantities[key]
-                            )
-                        
-                        # Update the item with preserved quantity
-                        item['ideal_quantity'] = preserved_ideal_quantities[key]
-                        
-                    # Case-insensitive matching if needed
-                    elif item['ideal_quantity'] == 0:
-                        # Try to find a case-insensitive match
-                        for p_key, p_value in preserved_ideal_quantities.items():
-                            if (p_key[0].upper() == item['type'].upper() and 
-                                p_key[1].upper() == item['color'].upper() and
-                                p_key[2].upper() == item['brand'].upper() and
-                                p_value > 0):
-                                print(f"Case-insensitive match found for {item['type']} {item['color']} {item['brand']}")
-                                item['ideal_quantity'] = p_value
-                                
-                                # Update database
-                                self.db_handler.set_ideal_filament_quantity(
-                                    item['type'], item['color'], item['brand'], p_value
-                                )
-                                break
-                    
-                    # Recalculate difference and percentage
-                    item['difference'] = item['current_quantity'] - item['ideal_quantity']
-                    if item['ideal_quantity'] > 0:
-                        item['percentage'] = (item['current_quantity'] / item['ideal_quantity'] * 100)
-                    else:
-                        item['percentage'] = None
-            
-            # Set table rows
+            # Set row count and populate table
             self.status_table.setRowCount(len(inventory_status))
             
             for row, item in enumerate(inventory_status):
-                # Set filament details
+                # Set data with appropriate types for sorting
                 is_group = item.get('is_group', False)
                 
-                # Create items
-                type_item = QTableWidgetItem(item['type'])
-                color_item = QTableWidgetItem(item['color'])
-                brand_item = QTableWidgetItem(item['brand'])
-                
-                # Set bold font for group items
+                # Type/group column
                 if is_group:
+                    # Make sure to use the group name from the data
+                    group_name = item.get('group_name', 'Unknown Group')
+                    type_item = QTableWidgetItem(f"Group: {group_name}")
+                    type_item.setData(Qt.UserRole, f"group_{item.get('group_id')}")
+                    # Make group rows stand out
                     font = type_item.font()
                     font.setBold(True)
                     type_item.setFont(font)
-                    color_item.setFont(font)
-                    brand_item.setFont(font)
-                    
-                    # Store group ID
-                    type_item.setData(Qt.UserRole, item['group_id'])
-                    
-                    # Add tooltip with group name and description
-                    tooltip = f"Group: {item['group_name']}"
-                    type_item.setToolTip(tooltip)
-                    color_item.setToolTip(tooltip)
-                    brand_item.setToolTip(tooltip)
-                
-                # Add items to table
+                else:
+                    type_item = QTableWidgetItem(item['type'])
                 self.status_table.setItem(row, 0, type_item)
+                
+                # Color column
+                color_item = QTableWidgetItem(item.get('color', '') if not is_group else '')
                 self.status_table.setItem(row, 1, color_item)
+                
+                # Brand column
+                brand_item = QTableWidgetItem(item.get('brand', '') if not is_group else '')
                 self.status_table.setItem(row, 2, brand_item)
                 
-                # Current quantity
+                # Current quantity column
+                current_qty = float(item['current_quantity'])
                 current_qty_item = QTableWidgetItem()
-                current_qty_item.setData(Qt.DisplayRole, item['current_quantity'])
-                current_qty_item.setText(f"{item['current_quantity']:.1f}")
-                if is_group:
-                    current_qty_item.setFont(font)
+                current_qty_item.setData(Qt.DisplayRole, current_qty)
+                current_qty_item.setText(f"{current_qty:.1f}")
                 self.status_table.setItem(row, 3, current_qty_item)
                 
-                # Ideal quantity
+                # Ideal quantity column
+                ideal_qty = float(item['ideal_quantity']) if item['ideal_quantity'] is not None else 0.0
                 ideal_qty_item = QTableWidgetItem()
-                ideal_qty_item.setData(Qt.DisplayRole, item['ideal_quantity'])
-                ideal_qty_item.setText(f"{item['ideal_quantity']:.1f}")
-                if is_group:
-                    ideal_qty_item.setFont(font)
+                ideal_qty_item.setData(Qt.DisplayRole, ideal_qty)
+                ideal_qty_item.setText(f"{ideal_qty:.1f}")
                 self.status_table.setItem(row, 4, ideal_qty_item)
                 
-                # Difference
-                diff_qty_item = QTableWidgetItem()
-                diff_qty_item.setData(Qt.DisplayRole, item['difference'])
-                diff_qty_item.setText(f"{item['difference']:.1f}")
-                if is_group:
-                    diff_qty_item.setFont(font)
-                self.status_table.setItem(row, 5, diff_qty_item)
+                # Difference column
+                difference = float(item['difference']) if item['difference'] is not None else 0.0
+                difference_item = QTableWidgetItem()
+                difference_item.setData(Qt.DisplayRole, difference)
+                difference_item.setText(f"{difference:.1f}")
+                self.status_table.setItem(row, 5, difference_item)
                 
-                # Get percentage and ensure it's properly calculated
+                # Status percentage column
                 percentage = item['percentage']
-                
-                # Status text
-                status_text = self.get_status_text(percentage)
-                status_item = QTableWidgetItem(status_text)
-                if is_group:
-                    status_item.setFont(font)
-                self.status_table.setItem(row, 6, status_item)
-                
-                # Apply color coding based on inventory status - do this after all items are set
-                # Use the new _apply_colors_to_row method to ensure consistent coloring
-                self._apply_colors_to_row(row, percentage, is_group)
+                if percentage is not None:
+                    percentage = float(percentage)
+                    percentage_item = QTableWidgetItem()
+                    percentage_item.setData(Qt.DisplayRole, percentage)
+                    percentage_item.setText(f"{percentage:.1f}%")
+                    
+                    # Get status text based on percentage
+                    status_text = self.get_status_text(percentage)
+                    self.status_table.setItem(row, 6, percentage_item)
+                    self.status_table.setItem(row, 7, QTableWidgetItem(status_text))
+                    
+                    # Color coding based on percentage
+                    self._apply_colors_to_status_row(row, percentage, is_group)
+                else:
+                    # No percentage available (likely because ideal quantity is 0)
+                    percentage_item = QTableWidgetItem("N/A")
+                    percentage_item.setData(Qt.DisplayRole, -1)  # Use -1 for sorting purposes
+                    self.status_table.setItem(row, 6, percentage_item)
+                    self.status_table.setItem(row, 7, QTableWidgetItem("No Target"))
             
+            # Re-enable sorting and restore sort state
+            self.status_table.setSortingEnabled(True)
+            if sort_column >= 0:
+                self.status_table.sortByColumn(sort_column, sort_order)
+                
+            # Apply any active filters
+            self.filter_status_table()
+                
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            QMessageBox.critical(self, "Error", f"Failed to load inventory status: {str(e)}\n\nDetails:\n{error_details}")
-            
+            print(f"Error loading inventory status: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to load inventory status: {str(e)}")
+            self.status_table.setRowCount(0)
+    
     def get_status_text(self, percentage):
         """Get status text based on percentage of ideal quantity."""
         if percentage is None:

@@ -43,12 +43,28 @@ A comprehensive desktop application for 3D printing enthusiasts to track filamen
 
 ## Recent Updates
 
+### Version 1.3.0
+
+-  **Enhanced Print Job Management**
+   -  Added filament ID display to make spool identification easier
+   -  Improved multicolor print job tracking with configurable number of additional filaments (1-3)
+   -  Updated print duration input format to more intuitive hours and minutes (e.g., 2h 30m)
+   -  Enhanced date display format in print job history (dd/mm/yy)
+   -  Streamlined user interface by removing redundant "Amount Used" labels
+-  **UI Improvements**
+   -  Better organization of multicolor print fields for easier tracking
+   -  Improved visibility control for secondary filament fields
+   -  Fixed issues with date display and sorting in print job history
+   -  Enhanced error handling in the multicolor print interface
+
 ### Version 1.2.0
 
 -  **Enhanced Filament Inventory Management**
+
    -  Added filament link group functionality to manage related filaments together
    -  Improved color coding system for inventory status with distinct purple shades for overstocked items
    -  Fixed issue where ideal quantities were reset after creating or deleting link groups
+
 -  **Reliability Improvements**
 
    -  Implemented robust ideal quantity preservation system

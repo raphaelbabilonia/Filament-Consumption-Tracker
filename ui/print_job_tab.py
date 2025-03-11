@@ -8,10 +8,17 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QGroupBox, QLabel, 
                              QLineEdit, QTextEdit, QMessageBox, QInputDialog,
                              QHeaderView, QFormLayout, QDateEdit, QComboBox,
-                             QDoubleSpinBox, QDateTimeEdit, QSplitter, QFileDialog)
+                             QDoubleSpinBox, QDateTimeEdit, QSplitter, QFileDialog,
+                             QCheckBox, QFrame, QSpinBox)
 from PyQt5.QtCore import Qt, QDateTime
 
 from database.db_handler import DatabaseHandler
+
+class DateTableWidgetItem(QTableWidgetItem):
+    """Custom QTableWidgetItem subclass for date columns to ensure proper sorting."""
+    def __lt__(self, other):
+        # Compare using the timestamp data stored in UserRole
+        return self.data(Qt.UserRole) < other.data(Qt.UserRole)
 
 class PrintJobTab(QWidget):
     """Print job management tab."""
@@ -21,6 +28,9 @@ class PrintJobTab(QWidget):
         super().__init__()
         
         self.db_handler = db_handler
+        # Create a placeholder for the signal that will be set by MainWindow
+        self.job_updated_signal = None
+        
         self.setup_ui()
         self.load_print_jobs()
         
@@ -43,31 +53,156 @@ class PrintJobTab(QWidget):
         self.project_name_input = QLineEdit()
         form_layout.addRow("Project Name:", self.project_name_input)
         
-        # Filament selection
-        self.filament_combo = QComboBox()
-        form_layout.addRow("Filament:", self.filament_combo)
-        
-        # Filament info label
-        self.filament_info_label = QLabel("No filament selected")
-        form_layout.addRow("Inventory Status:", self.filament_info_label)
-        
         # Printer selection
         self.printer_combo = QComboBox()
         form_layout.addRow("Printer:", self.printer_combo)
         
+        # Primary filament section
+        primary_filament_group = QGroupBox("Primary Filament")
+        primary_filament_layout = QVBoxLayout()
+        
+        # Search field for primary filament
+        primary_search_layout = QHBoxLayout()
+        self.primary_filament_search = QLineEdit()
+        self.primary_filament_search.setPlaceholderText("Search filament by type, color or brand...")
+        self.primary_filament_search.textChanged.connect(self.filter_primary_filaments)
+        primary_search_layout.addWidget(self.primary_filament_search)
+        primary_filament_layout.addLayout(primary_search_layout)
+        
+        # Filament selection for primary filament
+        self.filament_combo = QComboBox()
+        self.filament_combo.currentIndexChanged.connect(self.update_filament_info)
+        primary_filament_layout.addWidget(self.filament_combo)
+        
+        # Filament info label
+        self.filament_info_label = QLabel("No filament selected")
+        primary_filament_layout.addWidget(self.filament_info_label)
+        
         # Amount of filament used
+        primary_amount_layout = QHBoxLayout()
         self.filament_used_input = QDoubleSpinBox()
         self.filament_used_input.setRange(0.1, 10000)
         self.filament_used_input.setValue(20)  # Default value
         self.filament_used_input.setSuffix(" g")
-        form_layout.addRow("Filament Used:", self.filament_used_input)
+        primary_amount_layout.addWidget(self.filament_used_input)
+        primary_filament_layout.addLayout(primary_amount_layout)
+        
+        primary_filament_group.setLayout(primary_filament_layout)
+        form_layout.addRow(primary_filament_group)
+        
+        # Add multicolor support with secondary filaments
+        self.multicolor_checkbox = QCheckBox("Multicolor Print")
+        self.multicolor_checkbox.stateChanged.connect(self.toggle_multicolor)
+        
+        # Add a spinner to select the number of additional filaments (1-3)
+        multicolor_layout = QHBoxLayout()
+        multicolor_layout.addWidget(self.multicolor_checkbox)
+        
+        multicolor_layout.addWidget(QLabel("Number of additional filaments:"))
+        self.additional_filaments_spinner = QSpinBox()
+        self.additional_filaments_spinner.setRange(1, 3)
+        self.additional_filaments_spinner.setValue(1)
+        self.additional_filaments_spinner.setEnabled(False)
+        self.additional_filaments_spinner.valueChanged.connect(self.update_additional_filaments)
+        multicolor_layout.addWidget(self.additional_filaments_spinner)
+        
+        form_layout.addRow(multicolor_layout)
+        
+        # Secondary filament section (hidden by default)
+        self.secondary_filament_group = QGroupBox("Secondary Filaments")
+        self.secondary_filament_group.setVisible(False)
+        secondary_filament_layout = QVBoxLayout()
+        
+        # Second filament
+        second_filament_layout = QHBoxLayout()
+        self.filament_search_2 = QLineEdit()
+        self.filament_search_2.setPlaceholderText("Search second filament...")
+        self.filament_search_2.textChanged.connect(lambda text: self.filter_secondary_filaments(text, 2))
+        second_filament_layout.addWidget(self.filament_search_2)
+        secondary_filament_layout.addLayout(second_filament_layout)
+        
+        self.filament_combo_2 = QComboBox()
+        secondary_filament_layout.addWidget(self.filament_combo_2)
+        
+        second_amount_layout = QHBoxLayout()
+        self.filament_used_input_2 = QDoubleSpinBox()
+        self.filament_used_input_2.setRange(0, 10000)
+        self.filament_used_input_2.setValue(5)  # Default value
+        self.filament_used_input_2.setSuffix(" g")
+        second_amount_layout.addWidget(self.filament_used_input_2)
+        secondary_filament_layout.addLayout(second_amount_layout)
+        
+        # Add a separator
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        secondary_filament_layout.addWidget(line)
+        
+        # Third filament
+        third_filament_layout = QHBoxLayout()
+        self.filament_search_3 = QLineEdit()
+        self.filament_search_3.setPlaceholderText("Search third filament...")
+        self.filament_search_3.textChanged.connect(lambda text: self.filter_secondary_filaments(text, 3))
+        third_filament_layout.addWidget(self.filament_search_3)
+        secondary_filament_layout.addLayout(third_filament_layout)
+        
+        self.filament_combo_3 = QComboBox()
+        secondary_filament_layout.addWidget(self.filament_combo_3)
+        
+        third_amount_layout = QHBoxLayout()
+        self.filament_used_input_3 = QDoubleSpinBox()
+        self.filament_used_input_3.setRange(0, 10000)
+        self.filament_used_input_3.setValue(0)  # Default value
+        self.filament_used_input_3.setSuffix(" g")
+        third_amount_layout.addWidget(self.filament_used_input_3)
+        secondary_filament_layout.addLayout(third_amount_layout)
+        
+        # Add a separator
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.HLine)
+        line2.setFrameShadow(QFrame.Sunken)
+        secondary_filament_layout.addWidget(line2)
+        
+        # Fourth filament
+        fourth_filament_layout = QHBoxLayout()
+        self.filament_search_4 = QLineEdit()
+        self.filament_search_4.setPlaceholderText("Search fourth filament...")
+        self.filament_search_4.textChanged.connect(lambda text: self.filter_secondary_filaments(text, 4))
+        fourth_filament_layout.addWidget(self.filament_search_4)
+        secondary_filament_layout.addLayout(fourth_filament_layout)
+        
+        self.filament_combo_4 = QComboBox()
+        secondary_filament_layout.addWidget(self.filament_combo_4)
+        
+        fourth_amount_layout = QHBoxLayout()
+        self.filament_used_input_4 = QDoubleSpinBox()
+        self.filament_used_input_4.setRange(0, 10000)
+        self.filament_used_input_4.setValue(0)  # Default value
+        self.filament_used_input_4.setSuffix(" g")
+        fourth_amount_layout.addWidget(self.filament_used_input_4)
+        secondary_filament_layout.addLayout(fourth_amount_layout)
+        
+        self.secondary_filament_group.setLayout(secondary_filament_layout)
+        form_layout.addRow(self.secondary_filament_group)
         
         # Print duration
-        self.duration_input = QDoubleSpinBox()
-        self.duration_input.setRange(0.1, 1000)
-        self.duration_input.setValue(2)  # Default value
-        self.duration_input.setSuffix(" hours")
-        form_layout.addRow("Print Duration:", self.duration_input)
+        duration_layout = QHBoxLayout()
+        
+        # Hours
+        self.hours_input = QSpinBox()
+        self.hours_input.setRange(0, 999)
+        self.hours_input.setValue(2)  # Default 2 hours
+        self.hours_input.setSuffix(" h")
+        duration_layout.addWidget(self.hours_input)
+        
+        # Minutes
+        self.minutes_input = QSpinBox()
+        self.minutes_input.setRange(0, 59)
+        self.minutes_input.setValue(0)  # Default 0 minutes
+        self.minutes_input.setSuffix(" m")
+        duration_layout.addWidget(self.minutes_input)
+        
+        form_layout.addRow("Print Duration:", duration_layout)
         
         # Date and time
         self.date_time_input = QDateTimeEdit()
@@ -128,11 +263,19 @@ class PrintJobTab(QWidget):
         self.print_job_table = QTableWidget()
         self.print_job_table.setColumnCount(8)
         self.print_job_table.setHorizontalHeaderLabels([
-            "ID", "Date", "Project", "Filament", "Printer", 
-            "Amount Used (g)", "Duration (h)", "Notes"
+            "ID", "Date", "Project", "Filament", "Printer", "Amount (g)", "Duration (h)", "Notes"
         ])
-        self.print_job_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.print_job_table.setSelectionBehavior(QTableWidget.SelectRows)
+        
+        # Set column widths
+        self.print_job_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.print_job_table.setColumnWidth(0, 40)   # ID
+        self.print_job_table.setColumnWidth(1, 120)  # Date
+        self.print_job_table.setColumnWidth(2, 150)  # Project
+        self.print_job_table.setColumnWidth(3, 200)  # Filament
+        self.print_job_table.setColumnWidth(4, 150)  # Printer
+        self.print_job_table.setColumnWidth(5, 80)   # Amount
+        self.print_job_table.setColumnWidth(6, 80)   # Duration
+        self.print_job_table.setColumnWidth(7, 200)  # Notes
         
         # Add button to delete print jobs
         delete_button_layout = QHBoxLayout()
@@ -181,10 +324,9 @@ class PrintJobTab(QWidget):
         """Refresh filament data from database."""
         self.load_filament_combo()
         self.update_filament_info()
-        QMessageBox.information(self, "Refresh", "Filament data has been refreshed.")
-        
-    def load_filament_combo(self):
-        """Load filaments into combo box."""
+    
+    def load_filament_combo(self, search_text=""):
+        """Load filaments into combo box with optional filtering."""
         try:
             self.filament_combo.clear()
             self.filament_filter.clear()
@@ -202,7 +344,18 @@ class PrintJobTab(QWidget):
                 key = (agg_filament['type'], agg_filament['color'], agg_filament['brand'])
                 aggregated_lookup[key] = agg_filament
             
+            filtered_filaments = []
+            search_text = search_text.lower()
+            
             for filament in filaments:
+                # If search_text is provided, filter filaments
+                if search_text and not (search_text in filament.type.lower() or 
+                                        search_text in filament.color.lower() or 
+                                        search_text in filament.brand.lower()):
+                    continue
+                
+                filtered_filaments.append(filament)
+                
                 # Get the aggregated data for this filament type
                 agg_key = (filament.type, filament.color, filament.brand)
                 agg_data = aggregated_lookup.get(agg_key, {})
@@ -214,7 +367,7 @@ class PrintJobTab(QWidget):
                 if spool_count > 1:
                     display_text = f"{filament.brand} {filament.color} {filament.type} - ID:{filament.id} ({filament.quantity_remaining:.1f}g / {total_remaining:.1f}g total)"
                 else:
-                    display_text = f"{filament.brand} {filament.color} {filament.type} ({filament.quantity_remaining:.1f}g)"
+                    display_text = f"{filament.brand} {filament.color} {filament.type} - ID:{filament.id} ({filament.quantity_remaining:.1f}g)"
                 
                 self.filament_combo.addItem(display_text, filament.id)
                 
@@ -228,8 +381,23 @@ class PrintJobTab(QWidget):
                     filter_text = f"{filament.type} - {filament.color}"
                     self.filament_filter.addItem(filter_text, filament.id)
             
+            # Load the secondary filament combos with the same filaments, but add a None option
+            self.filament_combo_2.clear()
+            self.filament_combo_3.clear()
+            self.filament_combo_4.clear()
+            
+            self.filament_combo_2.addItem("None", None)
+            self.filament_combo_3.addItem("None", None)
+            self.filament_combo_4.addItem("None", None)
+            
+            for filament in filaments:
+                display_text = f"{filament.brand} {filament.color} {filament.type} - ID:{filament.id} ({filament.quantity_remaining:.1f}g)"
+                self.filament_combo_2.addItem(display_text, filament.id)
+                self.filament_combo_3.addItem(display_text, filament.id)
+                self.filament_combo_4.addItem(display_text, filament.id)
+            
             # If there are filaments, update the info label for the first one
-            if filaments:
+            if filtered_filaments:
                 self.update_filament_info()
                 
         except Exception as e:
@@ -323,13 +491,42 @@ class PrintJobTab(QWidget):
     def add_print_job(self):
         """Add a new print job to the database."""
         try:
-            # Get values from form
-            project_name = self.project_name_input.text()
+            project_name = self.project_name_input.text().strip()
+            if not project_name:
+                QMessageBox.warning(self, "Input Error", "Please enter a project name.")
+                return
+                
+            # Get filament and printer selection
             filament_id = self.filament_combo.currentData()
+            if filament_id is None:
+                QMessageBox.warning(self, "Input Error", "Please select a filament.")
+                return
+                
             printer_id = self.printer_combo.currentData()
             filament_used = self.filament_used_input.value()
-            duration = self.duration_input.value()
+            
+            # Calculate duration in hours (stored as float)
+            duration = self.hours_input.value() + (self.minutes_input.value() / 60.0)
+            
             notes = self.notes_input.toPlainText()
+            
+            # Get multicolor filament data if enabled
+            filament_id_2 = None
+            filament_used_2 = None
+            filament_id_3 = None
+            filament_used_3 = None
+            filament_id_4 = None
+            filament_used_4 = None
+            
+            if self.multicolor_checkbox.isChecked():
+                filament_id_2 = self.filament_combo_2.currentData()
+                filament_used_2 = self.filament_used_input_2.value() if filament_id_2 else 0
+                
+                filament_id_3 = self.filament_combo_3.currentData()
+                filament_used_3 = self.filament_used_input_3.value() if filament_id_3 else 0
+                
+                filament_id_4 = self.filament_combo_4.currentData()
+                filament_used_4 = self.filament_used_input_4.value() if filament_id_4 else 0
             
             # Basic validation
             if not project_name:
@@ -337,11 +534,24 @@ class PrintJobTab(QWidget):
                 return
                 
             if filament_id is None:
-                QMessageBox.warning(self, "Validation Error", "Please select a filament.")
+                QMessageBox.warning(self, "Validation Error", "Please select a primary filament.")
                 return
                 
             if printer_id is None:
                 QMessageBox.warning(self, "Validation Error", "Please select a printer.")
+                return
+            
+            # For secondary filaments, ensure amount is provided if filament is selected
+            if filament_id_2 and not filament_used_2:
+                QMessageBox.warning(self, "Validation Error", "Please enter amount used for the second filament.")
+                return
+                
+            if filament_id_3 and not filament_used_3:
+                QMessageBox.warning(self, "Validation Error", "Please enter amount used for the third filament.")
+                return
+                
+            if filament_id_4 and not filament_used_4:
+                QMessageBox.warning(self, "Validation Error", "Please enter amount used for the fourth filament.")
                 return
                 
             # Add to database
@@ -351,18 +561,38 @@ class PrintJobTab(QWidget):
                 printer_id=printer_id,
                 filament_used=filament_used,
                 duration=duration,
-                notes=notes
+                notes=notes,
+                filament_id_2=filament_id_2,
+                filament_used_2=filament_used_2,
+                filament_id_3=filament_id_3,
+                filament_used_3=filament_used_3,
+                filament_id_4=filament_id_4,
+                filament_used_4=filament_used_4
             )
             
             # Clear form
             self.project_name_input.clear()
             self.filament_used_input.setValue(20)
-            self.duration_input.setValue(2)
+            self.filament_used_input_2.setValue(5)
+            self.filament_used_input_3.setValue(0)
+            self.filament_used_input_4.setValue(0)
+            self.hours_input.setValue(2)
+            self.minutes_input.setValue(0)
             self.notes_input.clear()
+            self.multicolor_checkbox.setChecked(False)
+            self.additional_filaments_spinner.setValue(1)
+            self.primary_filament_search.clear()
+            self.filament_search_2.clear()
+            self.filament_search_3.clear()
+            self.filament_search_4.clear()
             
             # Reload data
             self.load_print_jobs()
             self.load_filament_combo()  # Refresh to show updated quantities
+            
+            # Signal to other tabs that inventory data has changed
+            if self.job_updated_signal:
+                self.job_updated_signal()
             
             QMessageBox.information(self, "Success", "Print job recorded successfully!")
             
@@ -374,28 +604,55 @@ class PrintJobTab(QWidget):
     def load_print_jobs(self, filament_id=None, printer_id=None):
         """Load print jobs from database and display in table."""
         try:
+            # Save current sort state
+            sort_column = self.print_job_table.horizontalHeader().sortIndicatorSection()
+            sort_order = self.print_job_table.horizontalHeader().sortIndicatorOrder()
+            
             # Get print jobs with optional filtering
             print_jobs = self.db_handler.get_print_jobs(
                 filament_id=filament_id,
                 printer_id=printer_id
             )
             
+            # Temporarily disable sorting
+            self.print_job_table.setSortingEnabled(False)
+            
+            # Set row count
             self.print_job_table.setRowCount(len(print_jobs))
             
             for row, job in enumerate(print_jobs):
                 # Set ID
                 id_item = QTableWidgetItem(str(job.id))
+                id_item.setData(Qt.DisplayRole, job.id)  # For proper numeric sorting
                 self.print_job_table.setItem(row, 0, id_item)
                 
                 # Set date
-                date_str = job.date.strftime("%Y-%m-%d %H:%M") if job.date else "N/A"
-                self.print_job_table.setItem(row, 1, QTableWidgetItem(date_str))
+                date_str = job.date.strftime("%d/%m/%y %H:%M") if job.date else "N/A"
+                date_item = DateTableWidgetItem(date_str)
+                date_item.setData(Qt.UserRole, job.date.timestamp() if job.date else 0)  # Store timestamp for sorting
+                self.print_job_table.setItem(row, 1, date_item)
                 
                 # Set project name
                 self.print_job_table.setItem(row, 2, QTableWidgetItem(job.project_name))
                 
-                # Set filament info
+                # Set filament info - now includes multicolor information
                 filament_text = f"{job.filament.brand} {job.filament.color} {job.filament.type}"
+                
+                # Add secondary filaments if present
+                secondary_filaments = []
+                
+                if job.filament_id_2 and job.filament_2:
+                    secondary_filaments.append(f"{job.filament_2.color} {job.filament_2.type} ({job.filament_used_2}g)")
+                
+                if job.filament_id_3 and job.filament_3:
+                    secondary_filaments.append(f"{job.filament_3.color} {job.filament_3.type} ({job.filament_used_3}g)")
+                
+                if job.filament_id_4 and job.filament_4:
+                    secondary_filaments.append(f"{job.filament_4.color} {job.filament_4.type} ({job.filament_used_4}g)")
+                
+                if secondary_filaments:
+                    filament_text += f" + {', '.join(secondary_filaments)}"
+                
                 self.print_job_table.setItem(row, 3, QTableWidgetItem(filament_text))
                 
                 # Set printer name
@@ -404,16 +661,44 @@ class PrintJobTab(QWidget):
                     printer_text += f" ({job.printer.model})"
                 self.print_job_table.setItem(row, 4, QTableWidgetItem(printer_text))
                 
-                # Set filament used
-                self.print_job_table.setItem(row, 5, QTableWidgetItem(f"{job.filament_used:.1f}"))
+                # Set filament used - now includes total of all filaments
+                total_filament_used = job.filament_used
+                if job.filament_used_2:
+                    total_filament_used += job.filament_used_2
+                if job.filament_used_3:
+                    total_filament_used += job.filament_used_3
+                if job.filament_used_4:
+                    total_filament_used += job.filament_used_4
+                
+                amount_item = QTableWidgetItem()
+                amount_item.setData(Qt.DisplayRole, float(total_filament_used))  # For proper numeric sorting
+                amount_item.setText(f"{total_filament_used:.1f}")
+                self.print_job_table.setItem(row, 5, amount_item)
                 
                 # Set duration
-                self.print_job_table.setItem(row, 6, QTableWidgetItem(f"{job.duration:.1f}"))
+                hours = int(job.duration)
+                minutes = int((job.duration - hours) * 60)
+                duration_str = f"{hours}h {minutes}m"
+                
+                duration_item = QTableWidgetItem(duration_str)
+                duration_item.setData(Qt.DisplayRole, float(job.duration))  # For proper numeric sorting
+                self.print_job_table.setItem(row, 6, duration_item)
                 
                 # Set notes
                 self.print_job_table.setItem(row, 7, QTableWidgetItem(job.notes or ""))
+            
+            # Re-enable sorting and restore previous sort state
+            self.print_job_table.setSortingEnabled(True)
+            if sort_column >= 0:  # If there was a previous sort
+                self.print_job_table.sortByColumn(sort_column, sort_order)
+                
+            # Apply any active filters
+            search_text = self.search_box.text().strip()
+            if search_text:
+                self.search_jobs()
                 
         except Exception as e:
+            print(f"Error loading print jobs: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load print jobs: {str(e)}")
     
     def search_jobs(self):
@@ -485,8 +770,8 @@ class PrintJobTab(QWidget):
         reply = QMessageBox.question(
             self, 
             "Confirm Deletion",
-            f"Are you sure you want to delete the print job '{project_name}' ({filament_used} of filament)?\n\n"
-            "This will restore the filament amount to inventory and adjust printer component usage hours.\n"
+            f"Are you sure you want to delete the print job '{project_name}' ({filament_used}g of filament)?\n\n"
+            "This will restore the filament amount to inventory.\n"
             "This action cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -500,11 +785,18 @@ class PrintJobTab(QWidget):
                 self.load_print_jobs()
                 self.load_filament_combo()
                 
+                # Signal to other tabs that inventory data has changed
+                if self.job_updated_signal:
+                    self.job_updated_signal()
+                
+                # Show success message with filament restoration info
                 QMessageBox.information(
                     self, 
-                    "Success", 
-                    f"Print job '{project_name}' deleted successfully. Filament has been restored to inventory."
+                    "Print Job Deleted",
+                    f"Print job '{project_name}' has been deleted.\n\n"
+                    f"The filament amount ({filament_used}g) has been restored to inventory."
                 )
+                
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete print job: {str(e)}")
     
@@ -550,3 +842,100 @@ class PrintJobTab(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to export print jobs: {str(e)}")
+    
+    def toggle_multicolor(self, state):
+        """Toggle visibility of secondary filament fields."""
+        is_checked = state == Qt.Checked
+        self.secondary_filament_group.setVisible(is_checked)
+        self.additional_filaments_spinner.setEnabled(is_checked)
+        
+        # Update visibility of filament fields based on spinner value
+        if is_checked:
+            self.update_additional_filaments(self.additional_filaments_spinner.value())
+    
+    def update_additional_filaments(self, value):
+        """Update visibility of secondary filament fields based on spinner value."""
+        # Store references to components for each filament
+        filament2_components = [
+            self.filament_search_2,
+            self.filament_combo_2,
+            self.filament_used_input_2
+        ]
+        
+        filament3_components = [
+            self.filament_search_3,
+            self.filament_combo_3,
+            self.filament_used_input_3
+        ]
+        
+        filament4_components = [
+            self.filament_search_4,
+            self.filament_combo_4,
+            self.filament_used_input_4
+        ]
+        
+        # Show/hide components based on the spinner value
+        
+        # Filament 2 is always visible when multicolor is checked
+        for widget in filament2_components:
+            widget.setVisible(True)
+            
+        # First separator (between filament 2 and 3)
+        try:
+            # Find the first separator in the layout
+            for i in range(self.secondary_filament_group.layout().count()):
+                widget = self.secondary_filament_group.layout().itemAt(i).widget()
+                if widget and isinstance(widget, QFrame):
+                    widget.setVisible(value >= 2)
+                    break
+        except Exception:
+            # In case of error, continue without affecting the separator
+            pass
+            
+        # Filament 3 components
+        for widget in filament3_components:
+            widget.setVisible(value >= 2)
+            
+        # Second separator (between filament 3 and 4)
+        try:
+            # Find the second separator in the layout
+            found_first = False
+            for i in range(self.secondary_filament_group.layout().count()):
+                widget = self.secondary_filament_group.layout().itemAt(i).widget()
+                if widget and isinstance(widget, QFrame):
+                    if found_first:
+                        widget.setVisible(value >= 3)
+                        break
+                    else:
+                        found_first = True
+        except Exception:
+            # In case of error, continue without affecting the separator
+            pass
+            
+        # Filament 4 components
+        for widget in filament4_components:
+            widget.setVisible(value >= 3)
+    
+    def filter_primary_filaments(self):
+        """Filter the primary filament combo box based on the search text."""
+        search_text = self.primary_filament_search.text().lower()
+        self.load_filament_combo(search_text)
+    
+    def filter_secondary_filaments(self, search_text, combo_number):
+        """Filter the secondary filament combo boxes based on the search text."""
+        search_text = search_text.lower()
+        combo = getattr(self, f"filament_combo_{combo_number}")
+        combo.clear()
+        
+        try:
+            # Get filaments that match the search text
+            filaments = self.db_handler.get_filaments()
+            combo.addItem("None", None)  # Add a None option
+            
+            for filament in filaments:
+                # If search text is empty or matches any field
+                if not search_text or search_text in filament.type.lower() or search_text in filament.color.lower() or search_text in filament.brand.lower():
+                    display_text = f"{filament.brand} {filament.color} {filament.type} - ID:{filament.id} ({filament.quantity_remaining:.1f}g)"
+                    combo.addItem(display_text, filament.id)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to filter filaments: {str(e)}")

@@ -373,6 +373,42 @@ The application uses PyQt's signal-slot mechanism for event handling:
 -  UI signals (button clicks, text changes) are connected to handler methods
 -  Cross-tab communication is managed through the main window
 
+### Print Job Tab
+
+The print job tracking interface is implemented in `print_job_tab.py` and includes the following key features:
+
+#### Filament Selection
+
+-  Primary filament selection displays filament IDs for easy identification
+-  The filament display format is: `"Brand Color Type - ID:X (remaining quantity)"`
+-  Secondary filaments use the same display format for consistency
+
+#### Multicolor Print Support
+
+-  Implemented using a dynamic interface that adjusts based on user needs
+-  The `toggle_multicolor` method controls the visibility of the secondary filament section
+-  The `update_additional_filaments` method handles the dynamic display of filament fields based on the selected number (1-3)
+-  Uses a robust approach to setting visibility with proper error handling
+
+#### Custom Table Item Classes
+
+-  `DateTableWidgetItem` - A custom `QTableWidgetItem` subclass that properly handles date sorting while displaying formatted dates
+-  This allows dates to be displayed in a friendly format (dd/mm/yy) while maintaining proper chronological sorting
+
+#### Duration Handling
+
+-  Duration input uses separate hours and minutes fields for intuitive entry
+-  Duration is stored in the database as decimal hours for compatibility
+-  Display format in the table uses "Xh Ym" format for readability
+
+#### Key Methods
+
+-  `toggle_multicolor(state)`: Controls visibility of the secondary filament section
+-  `update_additional_filaments(value)`: Updates the visibility of secondary filament fields
+-  `filter_secondary_filaments(search_text, combo_number)`: Filters the secondary filament dropdowns
+-  `add_print_job()`: Handles saving print job data to the database
+-  `load_print_jobs()`: Populates the job history table with formatted data
+
 ## Common Issues & Solutions
 
 ### Recursive Call Pitfalls

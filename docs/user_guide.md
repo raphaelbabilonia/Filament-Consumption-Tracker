@@ -148,20 +148,42 @@ The system now preserves ideal quantities automatically when:
 
 1. Go to the "Print Jobs" tab
 2. Enter the project name
-3. Select the filament used
-4. Select the printer used
+3. Select the printer used
+4. Select the primary filament used
+   -  Each filament displays its ID for easy identification of spools
+   -  The ID is visible next to the filament name (e.g., "Brand Color Type - ID:X")
 5. Enter the amount of filament used (in grams)
-6. Enter the print duration (in hours)
-7. Add any notes (optional)
-8. Click "Add Print Job"
+6. For multicolor prints:
+   -  Check the "Multicolor Print" checkbox
+   -  Select the number of additional filaments (1-3) from the spinner
+   -  Select each additional filament and enter the amount used
+7. Enter the print duration:
+   -  Specify hours and minutes separately in the respective fields
+   -  For example, 2h 30m for a two and a half hour print
+8. Enter the date and time (defaults to current time)
+9. Add any notes (optional)
+10.   Click "Add Print Job"
+
+### Working with Multicolor Prints
+
+The multicolor feature enables tracking of up to 3 additional filaments per print job:
+
+1. Check the "Multicolor Print" checkbox to enable secondary filament selection
+2. Use the "Number of additional filaments" spinner to specify how many additional filaments you used (1-3)
+3. The interface will dynamically show only the needed number of filament selectors
+4. Each filament selector displays the filament ID for easy spool identification
+5. Enter the amount of each additional filament used
 
 ### Viewing Print History
 
 -  All print jobs are displayed in the table below the entry form
+-  The date column displays dates in dd/mm/yy format for easy reading
+-  The duration column shows print times in hours and minutes (e.g., "2h 30m")
 -  You can filter jobs by:
    -  Using the search box to find projects, filaments, or printers
    -  Using dropdown filters for specific printers or filament types
 -  You can refresh filament data using the "Refresh Filament Data" button
+-  The table can be sorted by clicking on any column header
 
 ### Exporting Data
 

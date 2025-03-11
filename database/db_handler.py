@@ -336,11 +336,29 @@ class DatabaseHandler:
             session.close()
     
     # Print job operations
-    def add_print_job(self, project_name, filament_id, printer_id, filament_used, duration, notes=None):
-        """Add a new print job to the database."""
+    def add_print_job(self, project_name, filament_id, printer_id, filament_used, duration, notes=None,
+                      filament_id_2=None, filament_used_2=None,
+                      filament_id_3=None, filament_used_3=None,
+                      filament_id_4=None, filament_used_4=None):
+        """Add a new print job to the database.
+        
+        Args:
+            project_name: Name of the print project
+            filament_id: Primary filament ID
+            printer_id: Printer ID
+            filament_used: Amount of primary filament used (in grams)
+            duration: Print duration (in hours)
+            notes: Optional notes
+            filament_id_2: Secondary filament ID (optional)
+            filament_used_2: Amount of secondary filament used (optional)
+            filament_id_3: Tertiary filament ID (optional)
+            filament_used_3: Amount of tertiary filament used (optional)
+            filament_id_4: Quaternary filament ID (optional)
+            filament_used_4: Amount of quaternary filament used (optional)
+        """
         session = self.Session()
         try:
-            # Check if filament exists
+            # Check if primary filament exists
             filament = session.query(Filament).filter_by(id=filament_id).first()
             if not filament:
                 raise ValueError(f"No filament found with ID {filament_id}")
@@ -350,9 +368,34 @@ class DatabaseHandler:
             if not printer:
                 raise ValueError(f"No printer found with ID {printer_id}")
             
-            # Check if enough filament is available
+            # Check if enough primary filament is available
             if filament.quantity_remaining < filament_used:
                 raise ValueError(f"Not enough filament available. Only {filament.quantity_remaining}g remaining.")
+            
+            # Check secondary filaments if provided
+            filament_2 = None
+            if filament_id_2 and filament_used_2:
+                filament_2 = session.query(Filament).filter_by(id=filament_id_2).first()
+                if not filament_2:
+                    raise ValueError(f"No filament found with ID {filament_id_2}")
+                if filament_2.quantity_remaining < filament_used_2:
+                    raise ValueError(f"Not enough secondary filament available. Only {filament_2.quantity_remaining}g remaining.")
+            
+            filament_3 = None
+            if filament_id_3 and filament_used_3:
+                filament_3 = session.query(Filament).filter_by(id=filament_id_3).first()
+                if not filament_3:
+                    raise ValueError(f"No filament found with ID {filament_id_3}")
+                if filament_3.quantity_remaining < filament_used_3:
+                    raise ValueError(f"Not enough tertiary filament available. Only {filament_3.quantity_remaining}g remaining.")
+            
+            filament_4 = None
+            if filament_id_4 and filament_used_4:
+                filament_4 = session.query(Filament).filter_by(id=filament_id_4).first()
+                if not filament_4:
+                    raise ValueError(f"No filament found with ID {filament_id_4}")
+                if filament_4.quantity_remaining < filament_used_4:
+                    raise ValueError(f"Not enough quaternary filament available. Only {filament_4.quantity_remaining}g remaining.")
             
             # Create print job
             print_job = PrintJob(
@@ -362,11 +405,27 @@ class DatabaseHandler:
                 printer_id=printer_id,
                 filament_used=filament_used,
                 duration=duration,
-                notes=notes
+                notes=notes,
+                filament_id_2=filament_id_2,
+                filament_used_2=filament_used_2,
+                filament_id_3=filament_id_3,
+                filament_used_3=filament_used_3,
+                filament_id_4=filament_id_4,
+                filament_used_4=filament_used_4
             )
             
-            # Update filament quantity
+            # Update primary filament quantity
             filament.quantity_remaining -= filament_used
+            
+            # Update secondary filament quantities if provided
+            if filament_2 and filament_used_2:
+                filament_2.quantity_remaining -= filament_used_2
+                
+            if filament_3 and filament_used_3:
+                filament_3.quantity_remaining -= filament_used_3
+                
+            if filament_4 and filament_used_4:
+                filament_4.quantity_remaining -= filament_used_4
             
             # Update component usage for all components of this printer
             components = session.query(PrinterComponent).filter_by(printer_id=printer_id).all()
@@ -389,22 +448,38 @@ class DatabaseHandler:
             # Use joinedload to eagerly load the relationships to prevent lazy loading errors
             query = session.query(PrintJob).options(
                 joinedload(PrintJob.filament),
-                joinedload(PrintJob.printer)
+                joinedload(PrintJob.printer),
+                joinedload(PrintJob.filament_2),
+                joinedload(PrintJob.filament_3),
+                joinedload(PrintJob.filament_4)
             )
             
             if project_name:
                 query = query.filter(PrintJob.project_name.like(f"%{project_name}%"))
+                
             if filament_id:
-                query = query.filter_by(filament_id=filament_id)
+                # Filter for any of the filament columns containing this filament
+                query = query.filter(
+                    (PrintJob.filament_id == filament_id) |
+                    (PrintJob.filament_id_2 == filament_id) |
+                    (PrintJob.filament_id_3 == filament_id) |
+                    (PrintJob.filament_id_4 == filament_id)
+                )
+                
             if printer_id:
                 query = query.filter_by(printer_id=printer_id)
+                
             if start_date:
                 query = query.filter(PrintJob.date >= start_date)
+                
             if end_date:
                 query = query.filter(PrintJob.date <= end_date)
             
-            # Execute the query and return all results    
-            return query.order_by(PrintJob.date.desc()).all()
+            # Order by date, newest first
+            query = query.order_by(PrintJob.date.desc())
+            
+            # Execute the query and return all results
+            return query.all()
         finally:
             session.close()
     
@@ -474,18 +549,64 @@ class DatabaseHandler:
             session.close()
     
     def delete_print_job(self, job_id):
-        """Delete a print job."""
+        """Delete a print job and restore the filament used back to inventory."""
         session = self.Session()
         try:
             job = session.query(PrintJob).filter_by(id=job_id).first()
             if not job:
                 raise ValueError(f"No print job found with ID {job_id}")
+            
+            # Track restored filaments for reporting
+            restored_filaments = []
+            
+            # Restore primary filament
+            if job.filament_id and job.filament_used:
+                filament = session.query(Filament).filter_by(id=job.filament_id).first()
+                if filament:
+                    filament.quantity_remaining += job.filament_used
+                    restored_filaments.append((job.filament_id, job.filament_used))
+                    print(f"Restored {job.filament_used}g to filament ID {job.filament_id}")
+            
+            # Restore secondary filaments if they exist
+            if job.filament_id_2 and job.filament_used_2:
+                filament2 = session.query(Filament).filter_by(id=job.filament_id_2).first()
+                if filament2:
+                    filament2.quantity_remaining += job.filament_used_2
+                    restored_filaments.append((job.filament_id_2, job.filament_used_2))
+                    print(f"Restored {job.filament_used_2}g to filament ID {job.filament_id_2}")
+            
+            if job.filament_id_3 and job.filament_used_3:
+                filament3 = session.query(Filament).filter_by(id=job.filament_id_3).first()
+                if filament3:
+                    filament3.quantity_remaining += job.filament_used_3
+                    restored_filaments.append((job.filament_id_3, job.filament_used_3))
+                    print(f"Restored {job.filament_used_3}g to filament ID {job.filament_id_3}")
+            
+            if job.filament_id_4 and job.filament_used_4:
+                filament4 = session.query(Filament).filter_by(id=job.filament_id_4).first()
+                if filament4:
+                    filament4.quantity_remaining += job.filament_used_4
+                    restored_filaments.append((job.filament_id_4, job.filament_used_4))
+                    print(f"Restored {job.filament_used_4}g to filament ID {job.filament_id_4}")
+            
+            # Store job information for reporting
+            job_info = {
+                'id': job.id,
+                'project_name': job.project_name,
+                'restored_filaments': restored_filaments,
+                'total_restored': sum(amount for _, amount in restored_filaments)
+            }
                 
+            # Delete the print job
             session.delete(job)
             session.commit()
-            return True
+            
+            # Return information about the deleted job and restored filaments
+            return job_info
+            
         except Exception as e:
             session.rollback()
+            print(f"Error in delete_print_job: {str(e)}")
             raise e
         finally:
             session.close()
@@ -608,15 +729,16 @@ class DatabaseHandler:
                     group_status = {
                         'is_group': True,
                         'group_id': group.id,
-                        'group_name': group.name,
-                        'type': group.name,  # Use group name for type instead of concatenating all filament types
-                        'color': 'Group',    # Use a fixed label for color
-                        'brand': 'Group',    # Use a fixed label for brand
+                        'group_name': group.name or "Unknown Group",  # Use group name or default if None
+                        'name': group.name or "Unknown Group",  # For backward compatibility
+                        'type': group.name or "Unknown Group",  # Use group name for type instead of concatenating all filament types
+                        'color': '',    # Empty for groups
+                        'brand': '',    # Empty for groups
                         'current_quantity': total_current_quantity,
                         'ideal_quantity': ideal_qty,
                         'difference': diff,
                         'percentage': percentage,
-                        'spool_count': sum(item['spool_count'] for item in group_filaments if 'spool_count' in item),
+                        'spool_count': sum(item.get('spool_count', 0) for item in group_filaments),
                         'filaments': group_filaments
                     }
                     

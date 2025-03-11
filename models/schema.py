@@ -22,8 +22,26 @@ class Filament(Base):
     price = Column(Float)  # price per spool
     purchase_date = Column(DateTime, default=datetime.datetime.now)
     
-    # Relationship with print jobs
-    print_jobs = relationship("PrintJob", back_populates="filament")
+    # Relationship with print jobs - specify which foreign key to use
+    print_jobs = relationship("PrintJob", 
+                              foreign_keys="PrintJob.filament_id", 
+                              back_populates="filament")
+    
+    # Relationships for secondary filaments (print jobs where this filament is used as secondary)
+    secondary_print_jobs_2 = relationship("PrintJob", 
+                                         foreign_keys="PrintJob.filament_id_2",
+                                         overlaps="print_jobs",
+                                         back_populates="filament_2")
+    
+    secondary_print_jobs_3 = relationship("PrintJob", 
+                                         foreign_keys="PrintJob.filament_id_3",
+                                         overlaps="print_jobs",
+                                         back_populates="filament_3")
+    
+    secondary_print_jobs_4 = relationship("PrintJob", 
+                                         foreign_keys="PrintJob.filament_id_4",
+                                         overlaps="print_jobs",
+                                         back_populates="filament_4")
     
     def __repr__(self):
         return f"<Filament(type='{self.type}', color='{self.color}', brand='{self.brand}')>"
@@ -81,9 +99,35 @@ class PrintJob(Base):
     duration = Column(Float, nullable=False)  # in hours
     notes = Column(Text)
     
+    # For multicolor prints (secondary filaments)
+    filament_id_2 = Column(Integer, ForeignKey('filaments.id'), nullable=True)
+    filament_used_2 = Column(Float, nullable=True)  # in grams
+    
+    filament_id_3 = Column(Integer, ForeignKey('filaments.id'), nullable=True)
+    filament_used_3 = Column(Float, nullable=True)  # in grams
+    
+    filament_id_4 = Column(Integer, ForeignKey('filaments.id'), nullable=True)
+    filament_used_4 = Column(Float, nullable=True)  # in grams
+    
     # Relationships
-    filament = relationship("Filament", back_populates="print_jobs")
+    filament = relationship("Filament", foreign_keys=[filament_id], back_populates="print_jobs")
     printer = relationship("Printer", back_populates="print_jobs")
+    
+    # Relationships for secondary filaments
+    filament_2 = relationship("Filament", 
+                             foreign_keys=[filament_id_2],
+                             overlaps="secondary_print_jobs_2",
+                             back_populates="secondary_print_jobs_2")
+    
+    filament_3 = relationship("Filament", 
+                             foreign_keys=[filament_id_3],
+                             overlaps="secondary_print_jobs_3",
+                             back_populates="secondary_print_jobs_3")
+    
+    filament_4 = relationship("Filament", 
+                             foreign_keys=[filament_id_4],
+                             overlaps="secondary_print_jobs_4",
+                             back_populates="secondary_print_jobs_4")
     
     def __repr__(self):
         return f"<PrintJob(project_name='{self.project_name}', date='{self.date}')>"
