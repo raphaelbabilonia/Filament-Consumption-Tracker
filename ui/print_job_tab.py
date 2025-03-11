@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QDoubleSpinBox, QDateTimeEdit, QSplitter, QFileDialog,
                              QCheckBox, QFrame, QSpinBox, QMenu, QAction)
 from PyQt5.QtCore import Qt, QDateTime
+from PyQt5.QtCore import pyqtSignal
 
 from database.db_handler import DatabaseHandler
 
@@ -23,6 +24,8 @@ class DateTableWidgetItem(QTableWidgetItem):
 class PrintJobTab(QWidget):
     """Print job management tab."""
     
+    print_job_updated = pyqtSignal()
+    
     def __init__(self, db_handler):
         """Initialize print job tab."""
         super().__init__()
@@ -33,6 +36,10 @@ class PrintJobTab(QWidget):
         
         # Use the global electricity cost setting from the database
         self.electricity_cost_per_kwh = self.db_handler.get_electricity_cost()
+        
+        # Track modified items
+        self.modified_print_jobs = set()
+        self.modified_projects = set()
         
         self.setup_ui()
         self.load_print_jobs()
@@ -1162,3 +1169,53 @@ class PrintJobTab(QWidget):
                     break
                     
             self.filament_used_input_4.setValue(job.filament_used_4 or 0)
+    
+    def has_unsaved_changes(self):
+        """Check if there are any unsaved changes in the print job tab."""
+        return len(self.modified_print_jobs) > 0
+    
+    def save_all_changes(self):
+        """Save all pending changes in the print job tab."""
+        # Since we don't have direct save methods for each table,
+        # we'll simply reload the data and emit the signal to indicate changes
+        
+        # Reload the data to refresh the views
+        self.load_print_jobs()
+        
+        # Clear modification tracking
+        self.modified_print_jobs.clear()
+        self.modified_projects.clear()
+        
+        # Emit signal to notify that print job data has been updated
+        self.print_job_updated.emit()
+        
+    def on_print_job_cell_changed(self, row, column):
+        """Handle print job table cell changes."""
+        if column > 0:  # Ignore ID column
+            job_id = self.print_job_table.item(row, 0).data(Qt.UserRole)
+            if job_id:
+                self.modified_print_jobs.add(job_id)
+                # Set job name in bold to indicate unsaved changes
+                name_item = self.print_job_table.item(row, 1)
+                if name_item:
+                    font = name_item.font()
+                    font.setBold(True)
+                    name_item.setFont(font)
+        
+    def on_project_cell_changed(self, row, column):
+        """Handle project table cell changes."""
+        if column > 0 and column == 2:  # Project column (assuming column 2 is project)
+            project_id = self.print_job_table.item(row, 2).data(Qt.UserRole)
+            if project_id:
+                self.modified_projects.add(project_id)
+                # Set project name in bold to indicate unsaved changes
+                project_item = self.print_job_table.item(row, 2)
+                if project_item:
+                    font = project_item.font()
+                    font.setBold(True)
+                    project_item.setFont(font)
+    
+    def connect_signals(self):
+        """Connect signals to handle table cell changes."""
+        # Connect print job table changes
+        self.print_job_table.cellChanged.connect(self.on_print_job_cell_changed)

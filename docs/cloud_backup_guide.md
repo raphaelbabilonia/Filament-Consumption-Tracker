@@ -1,26 +1,28 @@
-# Google Drive Cloud Backup Guide
+# Google Drive Cloud Backup & Sync Guide
 
-This guide provides detailed information about using the Google Drive cloud backup feature in the Filament Consumption Tracker application.
+This guide provides detailed information about using the Google Drive cloud backup and synchronization features in the Filament Consumption Tracker application.
 
 ## Overview
 
-The cloud backup feature allows you to:
+The cloud backup and sync features allow you to:
 
 -  Back up your entire database to Google Drive
 -  Restore from previous backups with a simple click
--  Automatically back up when exiting the application
+-  Automatically sync your database on a schedule (hourly, daily, or on exit)
+-  Limit the number of backup files to save storage space
 -  Securely store your data in the cloud
+-  Access your data across multiple devices
 
 ## Setup
 
-Before using the cloud backup feature, you need to set up Google Drive API access. Please follow the detailed instructions in [google_drive_setup.md](./google_drive_setup.md).
+Before using the cloud features, you need to set up Google Drive API access. Please follow the detailed instructions in [google_drive_setup.md](./google_drive_setup.md).
 
 ## Using Cloud Backup
 
 ### Accessing the Cloud Backup Dialog
 
 1. Start the Filament Consumption Tracker application
-2. Go to the menu bar and select **File > Cloud Backup > Google Drive Backup**
+2. Go to the menu bar and select **File > Google Drive > Backup to Google Drive**
 3. This will open the Google Drive Backup dialog
 
 ### Authentication
@@ -46,15 +48,45 @@ The first time you use the feature, you'll need to authenticate with Google:
 
 #### Automatic Backup on Exit
 
-1. When closing the application, you'll be presented with three options:
-   -  **Cancel** - Cancel the exit operation
-   -  **Exit** - Exit without backing up
-   -  **Backup and Exit** - Backup your database to Google Drive and then exit
-2. If you select "Backup and Exit":
+1. When closing the application, you'll be presented with options depending on your sync settings:
+   -  If there are unsaved changes, you'll be asked if you want to save them
+   -  If automatic sync is enabled for "On application close", you'll be asked if you want to sync
+2. If you proceed with sync:
    -  A progress dialog will appear
    -  The backup will be performed
    -  The application will exit when the backup is complete
    -  You can cancel at any time
+
+## New: Cloud Sync Settings
+
+The application now includes advanced synchronization settings for better multi-device support:
+
+### Accessing Sync Settings
+
+1. Go to the menu bar and select **File > Google Drive > Sync Settings**
+2. This will open the Sync Settings dialog
+
+### Available Settings
+
+1. **Enable Automatic Synchronization** - Turn automatic sync on/off
+2. **Sync Frequency** - Choose when to perform automatic syncs:
+   -  **On application close** - Sync each time you exit the application
+   -  **Hourly** - Sync once per hour while the application is running
+   -  **Daily** - Sync once per day while the application is running
+3. **Maximum backups to keep** - Limit the number of backup files stored on Google Drive (1-50)
+4. **Last sync** - Shows when your data was last synchronized
+
+### Sync Now Button
+
+-  The Sync Settings dialog includes a **Sync Now** button to trigger an immediate sync
+-  This is useful to quickly sync your data without closing the application
+
+### Unsaved Changes
+
+-  If you have unsaved changes in any tab when automatic sync runs:
+   -  The application will automatically save your changes first
+   -  These changes will be part of the sync
+   -  Modified items are indicated with bold text in tables
 
 ### Restoring from a Backup
 
@@ -66,6 +98,29 @@ The first time you use the feature, you'll need to authenticate with Google:
 6. The application will download the backup and restore it
 7. The application will restart with the restored database
 
+## Multi-Device Workflow
+
+To effectively use your data across multiple devices:
+
+1. **Initial Setup**:
+   -  Set up Google Drive on each device following the setup guide
+   -  Create your initial database on one device
+   -  Back up to Google Drive
+2. **Subsequent Devices**:
+   -  After setting up the application, restore from Google Drive
+   -  Enable automatic sync with your preferred frequency
+3. **Ongoing Workflow**:
+
+   -  Each device will automatically sync changes based on your settings
+   -  The maximum backup limit ensures you don't store unnecessary files
+   -  Always check the "Last sync" timestamp to know when data was last synchronized
+
+4. **Best Practices**:
+   -  Use automatic sync "On application close" for devices used occasionally
+   -  Use "Hourly" or "Daily" for devices used frequently or for extended periods
+   -  Set a reasonable maximum backup limit (5-10 recommended)
+   -  If you use multiple devices daily, manually sync important changes using the "Sync Now" button
+
 ## Performance Optimization
 
 The backup system uses several optimizations to ensure fast and reliable backups:
@@ -73,11 +128,11 @@ The backup system uses several optimizations to ensure fast and reliable backups
 ### Smart Upload Strategy
 
 -  **Small Databases** (<5MB): Uses direct upload for faster backups (5-15 seconds)
--  **Larger Databases**: Uses optimized chunked upload with 5MB chunks (15+ seconds)
+-  **Larger Databases**: Uses optimized chunked upload with 1MB chunks (15+ seconds)
 
 ### Reliability Features
 
--  **SSL Error Handling**: Automatically retries up to 3 times with exponential backoff
+-  **Automatic Cleanup**: Old backups beyond your specified limit are automatically removed
 -  **Network Error Recovery**: Proper handling of connection issues
 -  **Progress Tracking**: Real-time feedback during backup and restore
 
@@ -97,13 +152,14 @@ If Windows shows a "Not Responding" dialog briefly:
 -  The application should recover within a few seconds
 -  Avoid clicking "End Process" as this will terminate the application
 
-### SSL Errors
+### Sync Not Running Automatically
 
-If you see SSL errors like "MIXED_HANDSHAKE_AND_NON_HANDSHAKE_DATA":
+If automatic sync isn't running:
 
--  These are typically temporary network issues
--  The application will automatically retry (up to 3 times)
--  If persistent, check your internet connection and try again later
+-  Check if you're properly authenticated with Google Drive
+-  Verify sync is enabled in the Sync Settings dialog
+-  Check that the frequency setting matches your expectations
+-  Look at the "Last sync" timestamp to see when the last sync occurred
 
 ### Authentication Issues
 
@@ -113,13 +169,13 @@ If authentication fails:
 -  Check that the credentials.json file is in the correct location
 -  Verify you've added yourself as a test user in Google Cloud Console
 
-### Slow Uploads
+### Sync Conflicts
 
-If uploads are taking too long:
+If you experience data conflicts when using multiple devices:
 
--  Check your internet connection speed, especially upload bandwidth
--  Larger databases will naturally take longer to upload
--  Consider using local backup for very large databases
+-  The system uses timestamps to determine the most recent backup
+-  Ensure your system clocks are relatively synchronized across devices
+-  When in doubt, perform a manual restore from the most up-to-date backup
 
 ## Security Considerations
 

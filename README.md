@@ -37,15 +37,35 @@ A comprehensive desktop application for 3D printing enthusiasts to track filamen
    -  Visual data representation with charts
    -  Customizable date ranges
 
+-  **Cloud Sync and Multi-Device Support**
+
+   -  Automatic synchronization with Google Drive
+   -  Configurable sync frequency (on exit, hourly, daily)
+   -  Smart backup management with customizable retention
+   -  Sync status tracking with timestamps
+   -  Seamless multi-device workflow
+   -  Unsaved changes detection and handling
+
 -  **Data Management**
    -  Built-in local backup and restore functionality
    -  Google Drive cloud backup integration with backup-on-exit feature
+   -  Automatic sync across multiple devices
    -  Optimized upload process for small and large databases
    -  Easy-to-use restore functionality
    -  Data export to CSV format
    -  Automatic database versioning
 
 ## Recent Updates
+
+### Version 1.5.0
+
+-  **Cloud Sync and Multi-Device Support**
+   -  Added dedicated Sync Settings dialog
+   -  Implemented automatic sync with configurable frequency
+   -  Added maximum backup limit to manage storage space
+   -  Added unsaved changes detection with visual indicators
+   -  Created comprehensive multi-device workflow support
+   -  Added Sync Now button for immediate synchronization
 
 ### Version 1.4.2
 

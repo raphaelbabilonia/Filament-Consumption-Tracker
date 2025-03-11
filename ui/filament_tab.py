@@ -1,6 +1,7 @@
 """
 Filament inventory management tab.
 """
+import datetime
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, 
                              QTableWidgetItem, QPushButton, QGroupBox, QLabel, 
                              QLineEdit, QDoubleSpinBox, QComboBox, QMessageBox,
@@ -8,7 +9,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QSplitter, QDialog, QDialogButtonBox, QInputDialog,
                              QListWidget, QListWidgetItem, QPlainTextEdit, QCheckBox,
                              QMenu, QAction, QScrollArea, QSpinBox)
-from PyQt5.QtCore import Qt, QDate, QSortFilterProxyModel, QTimer
+from PyQt5.QtCore import Qt, QDate, QSortFilterProxyModel, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QCursor
 
 from database.db_handler import DatabaseHandler
@@ -500,34 +501,24 @@ class FilamentLinkGroupDialog(QDialog):
 class FilamentTab(QWidget):
     """Filament inventory management tab."""
     
+    filament_updated = pyqtSignal()
+    
     def __init__(self, db_handler):
         """Initialize the filament tab."""
         super().__init__()
+        
         self.db_handler = db_handler
-        self.filament_data = None
-        self.max_id = 0
         
-        # Default minimum value for all ideal quantities
-        self.min_ideal_qty = 0
+        # Track modified items
+        self.modified_filaments = set()
+        self.modified_brands = set()
+        self.modified_types = set()
+        self.modified_colors = set()
         
+        # Setup UI
         self.setup_ui()
-        self.load_filaments()
-        self.load_aggregated_inventory()
-        self.load_inventory_status()  # Load inventory status comparison
-        self.populate_dynamic_dropdowns()
-        
-        # Add a timer to refresh the inventory status once on startup
-        # This ensures all colors are properly loaded after initialization
-        QTimer.singleShot(100, self.check_tpu_transparent)
-    
-    def check_tpu_transparent(self):
-        """Check and repair any filaments with zero ideal quantities."""
-        # Since the general solution now handles all filaments, this method just ensures
-        # all filaments have their ideal quantities preserved
-        print("Running filament quantity check...")
-        # Get all ideal quantities from the database to ensure they're preserved
-        ideal_quantities = self.capture_current_ideal_quantities()
-        self.fix_zero_ideal_quantities(ideal_quantities)
+        self.connect_signals()
+        self.load_data()
     
     def setup_ui(self):
         """Setup the user interface."""
@@ -1977,3 +1968,151 @@ class FilamentTab(QWidget):
         # Apply the color to the item
         item.setBackground(color)
         return color
+
+    def has_unsaved_changes(self):
+        """Check if there are any unsaved changes in the filament tab."""
+        return len(self.modified_filaments) > 0
+    
+    def save_all_changes(self):
+        """Save all pending changes in the filament tab."""
+        # Save filaments
+        for filament_id in self.modified_filaments:
+            # Find the filament in the table
+            for row in range(self.filament_table.rowCount()):
+                if self.filament_table.item(row, 0) and self.filament_table.item(row, 0).data(Qt.UserRole) == filament_id:
+                    self.save_filament_changes(row)
+                    break
+        
+        # Clear modification tracking
+        self.modified_filaments.clear()
+        
+        # Emit signal to notify that filament data has been updated
+        self.filament_updated.emit()
+
+    def on_filament_cell_changed(self, row, column):
+        """Handle filament table cell changes."""
+        if column > 0:  # Ignore ID column
+            filament_id = self.filament_table.item(row, 0).data(Qt.UserRole)
+            if filament_id:
+                self.modified_filaments.add(filament_id)
+                # Set filament name in bold to indicate unsaved changes
+                item = self.filament_table.item(row, 1)
+                if item:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+    
+    def on_brand_cell_changed(self, row, column):
+        """Handle brand table cell changes."""
+        if column > 0:  # Ignore ID column
+            brand_id = self.brand_table.item(row, 0).data(Qt.UserRole)
+            if brand_id:
+                self.modified_brands.add(brand_id)
+                # Set brand name in bold to indicate unsaved changes
+                item = self.brand_table.item(row, 1)
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+
+    def on_type_cell_changed(self, row, column):
+        """Handle filament type table cell changes."""
+        if column > 0:  # Ignore ID column
+            type_id = self.type_table.item(row, 0).data(Qt.UserRole)
+            if type_id:
+                self.modified_types.add(type_id)
+                # Set type name in bold to indicate unsaved changes
+                item = self.type_table.item(row, 1)
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+
+    def on_color_cell_changed(self, row, column):
+        """Handle color table cell changes."""
+        if column > 0:  # Ignore ID column
+            color_id = self.color_table.item(row, 0).data(Qt.UserRole)
+            if color_id:
+                self.modified_colors.add(color_id)
+                # Set color name in bold to indicate unsaved changes
+                item = self.color_table.item(row, 1)
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+
+    def connect_signals(self):
+        """Connect signals to handle table cell changes."""
+        # Connect filament table changes
+        self.filament_table.cellChanged.connect(self.on_filament_cell_changed)
+        
+        # Since we don't have brand_table, type_table, or color_table,
+        # we'll only track changes to the filament_table
+        
+    def load_data(self):
+        """Load all data for the filament tab."""
+        self.load_filaments()
+        self.load_aggregated_inventory()
+        self.load_inventory_status()  # Load inventory status comparison
+        self.populate_dynamic_dropdowns()
+        
+        # Add a timer to refresh the inventory status once on startup
+        # This ensures all colors are properly loaded after initialization
+        QTimer.singleShot(100, self.refresh_inventory_status)
+
+    def save_filament_changes(self, row):
+        """Save changes to a filament in the database."""
+        try:
+            # Get filament data from the table
+            filament_id = self.filament_table.item(row, 0).data(Qt.UserRole)
+            
+            # Get values from the table cells
+            # Column indices might need adjustment based on the actual table structure
+            filament_type = self.filament_table.item(row, 1).text()
+            color = self.filament_table.item(row, 2).text()
+            brand = self.filament_table.item(row, 3).text()
+            
+            # Use default values or actual cell values if present
+            spool_weight = 1000.0  # Default
+            if self.filament_table.item(row, 4):
+                try:
+                    spool_weight = float(self.filament_table.item(row, 4).text())
+                except (ValueError, TypeError):
+                    pass
+            
+            quantity_remaining = 0.0  # Default
+            if self.filament_table.item(row, 5):
+                try:
+                    quantity_remaining = float(self.filament_table.item(row, 5).text())
+                except (ValueError, TypeError):
+                    pass
+            
+            price = 0.0  # Default
+            if self.filament_table.item(row, 6):
+                try:
+                    price = float(self.filament_table.item(row, 6).text())
+                except (ValueError, TypeError):
+                    pass
+            
+            # Default purchase date is today
+            purchase_date = datetime.date.today().isoformat()
+            if self.filament_table.item(row, 7):
+                purchase_date = self.filament_table.item(row, 7).text()
+            
+            # Update filament in database
+            self.db_handler.update_filament(
+                filament_id, filament_type, color, brand,
+                spool_weight, quantity_remaining, price, purchase_date
+            )
+            
+            # Reset the font weight to normal
+            for col in range(1, self.filament_table.columnCount()):
+                item = self.filament_table.item(row, col)
+                if item:
+                    font = item.font()
+                    font.setBold(False)
+                    item.setFont(font)
+            
+            # Update other views that depend on filament data
+            self.load_aggregated_inventory()
+            self.load_inventory_status()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save filament changes: {str(e)}")

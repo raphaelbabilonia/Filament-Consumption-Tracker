@@ -369,27 +369,93 @@ If you encounter issues not covered in this guide:
 
 ## Data Management
 
-### Backup and Restore
+### Local Backup and Restore
 
-The application provides built-in backup and restore functionality:
+1. Go to **File > Backup Database**
+2. Choose a location to save your backup file
+3. The file will be saved with a timestamp in the filename
 
-1. Go to File → Backup Database to save a copy of your data
-2. Go to File → Restore Database to recover from a backup
-3. Backups are date-stamped for easy identification
+To restore:
 
-### Regular Backups
+1. Go to **File > Restore Database**
+2. Browse to your backup file
+3. Confirm the restoration
 
--  We recommend creating backups before:
-   -  Making significant changes to your inventory
-   -  Deleting multiple records
-   -  Updating to a new version of the application
+### Google Drive Backup
 
-### Database Location
+For detailed instructions on setting up and using Google Drive for backup, see [cloud_backup_guide.md](./cloud_backup_guide.md).
 
-The application stores its database at:
+Basic steps:
 
--  Default location: In the application directory
--  You can specify a custom location in the settings
+1. Set up Google Drive access using instructions in [google_drive_setup.md](./google_drive_setup.md)
+2. Go to **File > Google Drive > Backup to Google Drive**
+3. Follow the prompts to authenticate and complete the backup
+
+### New: Cloud Sync and Multi-Device Support
+
+The Filament Consumption Tracker now includes powerful cloud synchronization features that let you keep your data synchronized across multiple devices. This is ideal if you:
+
+-  Use the application on both a desktop and laptop computer
+-  Have a shared workshop where multiple people track filament usage
+-  Want automatic backups without manual intervention
+
+#### Setting Up Cloud Sync
+
+1. Go to **File > Google Drive > Sync Settings**
+2. In the Sync Settings dialog:
+   -  Check **Enable automatic synchronization** to turn on the feature
+   -  Select your preferred frequency:
+      -  **On application close** - Sync each time you exit the app
+      -  **Hourly** - Sync automatically once every hour
+      -  **Daily** - Sync once per day
+   -  Set the **Maximum backups to keep** (recommended: 5-10)
+3. Click **OK** to save your settings
+
+#### Using Cloud Sync
+
+Once enabled, the synchronization happens automatically based on your settings. You can also:
+
+-  Click **Sync Now** in the Sync Settings dialog to perform an immediate sync
+-  See when your data was last synchronized in the **Last sync** field
+-  Check for unsaved changes in the tables (modified items appear in **bold**)
+
+#### Multi-Device Workflow
+
+To use the application on multiple devices:
+
+1. **First Device Setup**:
+   -  Set up the application normally
+   -  Configure Google Drive access
+   -  Create your database and enable automatic sync
+2. **Additional Devices**:
+   -  Install the application
+   -  Configure Google Drive access
+   -  Instead of creating a new database, restore from your Google Drive backup
+   -  Enable automatic sync with your preferred settings
+3. **Daily Usage**:
+   -  Make changes on any device
+   -  The changes will automatically sync based on your settings
+   -  Always check the "Last sync" timestamp to know how current your data is
+   -  Use "Sync Now" when you need immediate synchronization
+
+#### Recommendations
+
+-  For a desktop computer that's always on, use **Hourly** sync
+-  For laptops or less frequently used devices, use **On application close**
+-  Set a reasonable backup limit (5-10) to avoid using too much storage
+-  After making important changes, use **Sync Now** to ensure they're immediately backed up
+-  When restoring on a new device, always choose the most recent backup file
+
+#### Troubleshooting
+
+If synchronization isn't working:
+
+1. Check your internet connection
+2. Verify you're properly authenticated with Google Drive
+3. Check if automatic sync is enabled in settings
+4. Use "Sync Now" to manually trigger a sync and check for error messages
+5. Look at the "Last sync" timestamp to see if sync is actually running
+6. For persistent issues, try restoring from a known good backup
 
 ## Keyboard Shortcuts
 

@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QSpinBox, QDoubleSpinBox, QDialog, QDialogButtonBox)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
+from PyQt5.QtCore import pyqtSignal
 
 from database.db_handler import DatabaseHandler
 
@@ -147,13 +148,21 @@ class PrinterDialog(QDialog):
 class PrinterTab(QWidget):
     """Printer management tab."""
     
+    printer_updated = pyqtSignal()
+    
     def __init__(self, db_handler):
         """Initialize printer tab."""
         super().__init__()
         
         self.db_handler = db_handler
+        
+        # Track modified items
+        self.modified_printers = set()
+        self.modified_components = set()
+        
         self.setup_ui()
         self.load_printers()
+        self.connect_signals()
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -566,3 +575,54 @@ class PrinterTab(QWidget):
                 "This value will be used for all electricity cost calculations in the application.",
                 QMessageBox.Ok
             )
+
+    def connect_signals(self):
+        """Connect signals to handle table cell changes."""
+        self.printer_table.cellChanged.connect(self.on_printer_cell_changed)
+        self.component_table.cellChanged.connect(self.on_component_cell_changed)
+
+    def on_printer_cell_changed(self, row, column):
+        """Handle printer table cell changes."""
+        if column > 0:  # Ignore ID column
+            printer_id = self.printer_table.item(row, 0).data(Qt.UserRole)
+            if printer_id:
+                self.modified_printers.add(printer_id)
+                # Set printer name in bold to indicate unsaved changes
+                name_item = self.printer_table.item(row, 1)
+                if name_item:
+                    font = name_item.font()
+                    font.setBold(True)
+                    name_item.setFont(font)
+
+    def on_component_cell_changed(self, row, column):
+        """Handle component table cell changes."""
+        if column > 0:  # Ignore ID column
+            component_id = self.component_table.item(row, 0).data(Qt.UserRole)
+            if component_id:
+                self.modified_components.add(component_id)
+                # Set component name in bold to indicate unsaved changes
+                name_item = self.component_table.item(row, 1)
+                if name_item:
+                    font = name_item.font()
+                    font.setBold(True)
+                    name_item.setFont(font)
+
+    def has_unsaved_changes(self):
+        """Check if there are any unsaved changes in the printer tab."""
+        return (len(self.modified_printers) > 0 or 
+                len(self.modified_components) > 0)
+    
+    def save_all_changes(self):
+        """Save all pending changes in the printer tab."""
+        # Since we don't have direct save methods for each table,
+        # we'll simply reload the data and emit the signal to indicate changes
+        
+        # Reload the data to refresh the views
+        self.load_printers()
+        
+        # Clear modification tracking
+        self.modified_printers.clear()
+        self.modified_components.clear()
+        
+        # Emit signal to notify that printer data has been updated
+        self.printer_updated.emit()

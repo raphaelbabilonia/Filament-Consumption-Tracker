@@ -165,130 +165,104 @@ class GoogleDriveHandler(QObject):
         """Check if already authenticated with Google Drive."""
         return self.service is not None
     
-    def upload_file(self, file_path, file_name=None, folder_id=None):
+    def upload_file(self, file_path, file_name=None, folder_id=None, max_backups=None):
         """
         Upload a file to Google Drive.
         
         Args:
             file_path: Path to the file to upload
-            file_name: Name to give the file in Google Drive (defaults to original name)
-            folder_id: ID of the folder to upload to (None for root)
+            file_name: Optional name to use for the file on Drive, defaults to the base name
+            folder_id: Optional folder ID to upload to, defaults to app folder
+            max_backups: Maximum number of backup files to keep (oldest will be deleted)
         """
-        # Reset cancellation flag
+        if not self.is_authenticated():
+            self.auth_completed.emit(False, "Not authenticated with Google Drive")
+            return
+            
         self._upload_cancelled = False
         
-        # Store file_name in a variable that will be accessible in the thread
-        _file_name = file_name if file_name is not None else os.path.basename(file_path)
-        
         def upload_thread():
+            # Build upload request
             try:
-                if not self.is_authenticated():
-                    self.upload_completed.emit(False, "", "Not authenticated with Google Drive")
-                    return
+                # Get creds and service
+                credentials = pickle.loads(self._credentials)
+                drive_service = build('drive', 'v3', credentials=credentials)
                 
-                if not os.path.exists(file_path):
-                    self.upload_completed.emit(False, "", f"File not found: {file_path}")
-                    return
+                # Determine target folder
+                target_folder_id = folder_id
+                if not target_folder_id:
+                    # Get or create app folder
+                    target_folder_id = self.create_or_get_app_folder()
                 
-                # Get file size to determine upload strategy
-                file_size = os.path.getsize(file_path)
+                # Determine file name
+                target_file_name = file_name
+                if not target_file_name:
+                    target_file_name = os.path.basename(file_path)
                 
-                # Start progress updates (in main thread)
-                self.start_progress_timer.emit()
+                # Start progress tracking
+                QMetaObject.invokeMethod(self, '_start_timer', Qt.QueuedConnection)
                 
-                # Define file metadata
-                file_metadata = {'name': _file_name}
+                # Create file metadata
+                file_metadata = {
+                    'name': target_file_name,
+                    'parents': [target_folder_id]
+                }
                 
-                # Set parent folder if specified
-                if folder_id:
-                    file_metadata['parents'] = [folder_id]
-                
-                # Use simple upload for small files (faster)
-                if file_size < 5 * 1024 * 1024:  # Less than 5 MB
-                    try:
-                        media = MediaFileUpload(file_path, resumable=False)
-                        file = self.service.files().create(
-                            body=file_metadata,
-                            media_body=media,
-                            fields='id'
-                        ).execute()
-                        
-                        file_id = file.get('id')
-                        self.stop_progress_timer.emit()
-                        self.upload_completed.emit(True, file_id, f"File uploaded successfully with ID: {file_id}")
-                        return
-                    except Exception:
-                        # If direct upload fails, fall back to chunked upload
-                        pass
-                
-                # For larger files or if direct upload failed, use resumable upload
-                # Create media object with optimized chunk size for better performance
-                # Default chunk size is 256KB, we'll use a larger value for faster uploads
-                chunk_size = 1024 * 1024 * 5  # 5 MB chunks
+                # Create media
                 media = MediaFileUpload(
-                    file_path, 
+                    file_path,
                     resumable=True,
-                    chunksize=chunk_size
+                    chunksize=1024*1024  # 1MB chunks
                 )
                 
                 # Create the upload request
-                request = self.service.files().create(
+                request = drive_service.files().create(
                     body=file_metadata,
                     media_body=media,
                     fields='id'
                 )
                 
-                # Maximum retry attempts for SSL errors
-                max_retries = 3
-                retry_count = 0
-                success = False
-                
-                while retry_count < max_retries and not success:
-                    try:
-                        # Execute the request and handle response
-                        response = None
-                        while response is None:
-                            if self._upload_cancelled:
-                                self.stop_progress_timer.emit()
-                                self.upload_completed.emit(False, "", "Upload cancelled by user")
-                                return
-                                
-                            # This is a blocking call, but we simulate progress with our timer
-                            # The actual API doesn't provide real-time progress
-                            response = request.next_chunk()
-                        
-                        if response is not None:
-                            # Upload completed successfully
-                            file_id = response[1].get('id')
-                            self.stop_progress_timer.emit()
-                            self.upload_completed.emit(True, file_id, f"File uploaded successfully with ID: {file_id}")
-                            success = True
-                    
-                    except (socket.error, ssl.SSLError) as e:
-                        retry_count += 1
-                        if retry_count >= max_retries:
-                            # All retries failed
-                            self.stop_progress_timer.emit()
-                            self.upload_completed.emit(False, "", f"Upload failed after {max_retries} retries: {str(e)}")
-                            return
-                            
-                        # Wait before retrying (shorter wait time)
-                        time.sleep(1)
-                        continue
-                    
-                    except Exception as e:
-                        # Other errors - don't retry
-                        self.stop_progress_timer.emit()
-                        self.upload_completed.emit(False, "", f"Upload failed: {str(e)}")
+                # Execute the upload with progress tracking
+                response = None
+                last_progress = 0
+                while response is None:
+                    if self._upload_cancelled:
+                        # Abort upload
+                        media.stream().close()
+                        QMetaObject.invokeMethod(self, '_stop_timer', Qt.QueuedConnection)
+                        self.upload_completed.emit(False, "", "Upload canceled")
                         return
+                        
+                    status, response = request.next_chunk()
+                    
+                    if status:
+                        progress = int(status.progress() * 100)
+                        if progress != last_progress:
+                            self.upload_progress.emit(progress)
+                            last_progress = progress
+                
+                # Upload complete
+                file_id = response.get('id')
+                
+                # Manage maximum number of backups if specified
+                if max_backups is not None and max_backups > 0:
+                    self.prune_old_backups(target_folder_id, max_backups)
+                
+                # Stop progress tracking
+                QMetaObject.invokeMethod(self, '_stop_timer', Qt.QueuedConnection)
+                
+                # Emit completion signal
+                self.upload_completed.emit(True, file_id, f"File uploaded as {target_file_name}")
                 
             except Exception as e:
-                self.stop_progress_timer.emit()
+                # Stop progress tracking
+                QMetaObject.invokeMethod(self, '_stop_timer', Qt.QueuedConnection)
+                
+                # Emit error signal
                 self.upload_completed.emit(False, "", f"Upload failed: {str(e)}")
-        
-        # Start upload in a separate thread
-        thread = threading.Thread(target=upload_thread, daemon=True)
-        thread.start()
+                
+        # Start upload in background thread
+        threading.Thread(target=upload_thread).start()
     
     def _emit_fake_progress(self):
         """Emit fake progress to keep UI responsive during upload.
@@ -428,4 +402,38 @@ class GoogleDriveHandler(QObject):
             return folder.get('id')
             
         except Exception:
-            return None 
+            return None
+    
+    def prune_old_backups(self, folder_id, max_backups):
+        """
+        Delete oldest backups if the count exceeds max_backups.
+        
+        Args:
+            folder_id: The folder containing backup files
+            max_backups: Maximum number of backups to keep
+        """
+        try:
+            # Get credentials and service
+            credentials = pickle.loads(self._credentials)
+            drive_service = build('drive', 'v3', credentials=credentials)
+            
+            # List files in the folder
+            response = drive_service.files().list(
+                q=f"'{folder_id}' in parents and trashed = false",
+                orderBy="createdTime",
+                fields="files(id, name, createdTime)"
+            ).execute()
+            
+            files = response.get('files', [])
+            
+            # If we have more files than max_backups, delete oldest ones
+            if len(files) > max_backups:
+                # Calculate how many to delete
+                to_delete = len(files) - max_backups
+                
+                # Delete the oldest files (they're sorted by createdTime)
+                for i in range(to_delete):
+                    drive_service.files().delete(fileId=files[i]['id']).execute()
+                    
+        except Exception as e:
+            print(f"Error pruning old backups: {str(e)}") 

@@ -3,6 +3,8 @@ Dialog for Google Drive backup operations.
 """
 import os
 import datetime
+import shutil
+import json
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QListWidget, QProgressBar,
                             QMessageBox, QFileDialog, QAbstractItemView,
@@ -194,41 +196,67 @@ class DriveBackupDialog(QDialog):
         self.restore_button.setEnabled(self.file_list.count() > 0)
         
     def backup_to_drive(self):
-        """Backup database to Google Drive."""
+        """Backup the database to Google Drive."""
+        if not self.drive_handler.is_authenticated():
+            QMessageBox.warning(
+                self,
+                "Authentication Required",
+                "Please authenticate with Google Drive first."
+            )
+            return
+        
+        # Set up UI for backup operation
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Preparing backup...")
+        self.set_controls_enabled(False)
+        
+        # Create backup file name with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"filament_tracker_backup_{timestamp}.db"
+        
+        # Determine where to store the backup file
+        temp_dir = os.path.dirname(self.db_handler.db_path)
+        backup_path = os.path.join(temp_dir, backup_filename)
+        
         try:
-            # Get the current database path
-            db_path = self.db_handler.engine.url.database
+            # Copy the database file to the backup location
+            shutil.copy2(self.db_handler.db_path, backup_path)
             
-            # Set backup filename with timestamp
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"filament_tracker_backup_{timestamp}.db"
-            
-            # Show progress
-            self.status_label.setText("Status: Backing up to Google Drive...")
-            self.progress_bar.setVisible(True)
-            self.set_controls_enabled(False)
-            
-            # Upload the file
-            self.drive_handler.upload_file(db_path, file_name, self.app_folder_id)
-            
-            return True
+            # Get max backups setting
+            max_backups = 5  # Default
+            try:
+                settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                        'database', 'sync_settings.json')
+                if os.path.exists(settings_path):
+                    with open(settings_path, 'r') as f:
+                        settings = json.load(f)
+                        max_backups = settings.get("max_backups", 5)
+            except Exception:
+                pass
+                
+            # Upload to Google Drive
+            self.status_label.setText("Uploading to Google Drive...")
+            self.drive_handler.upload_file(
+                backup_path, 
+                backup_filename, 
+                self.app_folder_id,
+                max_backups=max_backups
+            )
             
         except Exception as e:
-            error_msg = f"Failed to start backup: {str(e)}"
-            self.status_label.setText(f"Status: {error_msg}")
-            
-            # Only show message box if dialog is visible (not when called programmatically)
-            if self.isVisible():
-                QMessageBox.critical(
-                    self,
-                    "Backup Error",
-                    error_msg
-                )
-                
-            self.progress_bar.setVisible(False)
             self.set_controls_enabled(True)
+            QMessageBox.critical(
+                self,
+                "Backup Error",
+                f"Failed to create backup file: {str(e)}"
+            )
             
-            return False
+            # Clean up
+            if os.path.exists(backup_path):
+                try:
+                    os.remove(backup_path)
+                except:
+                    pass
     
     def on_upload_completed(self, success, file_id, message):
         """Handle upload completion."""

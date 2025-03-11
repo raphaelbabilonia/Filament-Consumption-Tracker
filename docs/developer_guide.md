@@ -14,6 +14,7 @@ This guide provides technical information for developers who want to understand,
 8. [Testing](#testing)
 9. [Deployment](#deployment)
 10.   [Contributing Guidelines](#contributing-guidelines)
+11.   [Cloud Sync and Multi-Device Support](#cloud-sync-and-multi-device-support)
 
 ## Architecture Overview
 
@@ -711,3 +712,174 @@ On first run, the application:
 -  Provide user-friendly error messages
 -  Log detailed errors for debugging
 -  Don't expose sensitive information in error messages
+
+## Cloud Sync and Multi-Device Support
+
+This section covers the implementation details of the cloud synchronization and multi-device support features.
+
+### Overview
+
+The cloud sync system allows for automatic synchronization of database files to Google Drive with configurable parameters:
+
+-  Different synchronization frequencies (on exit, hourly, daily)
+-  Maximum backup limit to manage storage space
+-  Sync status tracking with timestamps
+-  Automatic handling of unsaved changes
+
+### Key Components
+
+#### SyncSettingsDialog
+
+The `SyncSettingsDialog` class (`ui/sync_settings_dialog.py`) provides a user interface for configuring synchronization:
+
+```python
+class SyncSettingsDialog(QDialog):
+    """Dialog for configuring cloud synchronization settings."""
+
+    def __init__(self, parent=None):
+        # Initialize dialog
+
+    def setup_ui(self):
+        # Create the user interface with:
+        # - Enable/disable checkbox
+        # - Frequency dropdown (On application close, Hourly, Daily)
+        # - Maximum backups spinner
+        # - Last sync timestamp display
+        # - Sync Now button
+
+    def load_settings(self):
+        # Load sync settings from file
+
+    def save_settings(self):
+        # Save sync settings to file
+
+    def sync_now(self):
+        # Trigger immediate synchronization
+```
+
+#### Google Drive Integration
+
+The enhanced `GoogleDriveHandler` class includes new methods for backup file management:
+
+```python
+def upload_file(self, file_path, file_name=None, folder_id=None, max_backups=None):
+    """
+    Upload a file to Google Drive with optional cleanup of old backups.
+
+    Args:
+        file_path: Path to the file to upload
+        file_name: Optional name to use for the file on Drive
+        folder_id: Optional folder ID to upload to
+        max_backups: Maximum number of backup files to keep
+    """
+
+def prune_old_backups(self, folder_id, max_backups):
+    """
+    Delete oldest backups if the count exceeds max_backups.
+
+    Args:
+        folder_id: The folder containing backup files
+        max_backups: Maximum number of backups to keep
+    """
+```
+
+#### Automatic Sync Timer
+
+The `MainWindow` class includes methods for handling automatic sync:
+
+```python
+def setup_auto_sync(self):
+    """Set up the automatic synchronization timer based on settings."""
+
+def update_auto_sync_timer(self):
+    """Update the auto sync timer based on current settings."""
+
+def check_auto_sync(self):
+    """Check if it's time to perform an automatic sync based on the schedule."""
+
+def perform_auto_sync(self):
+    """Perform an automatic sync without user interaction."""
+```
+
+#### Unsaved Changes Tracking
+
+Each tab class implements methods to track and save changes:
+
+```python
+def has_unsaved_changes(self):
+    """Check if there are any unsaved changes in the tab."""
+
+def save_all_changes(self):
+    """Save all pending changes in the tab."""
+
+def on_cell_changed(self, row, column):
+    """Handle table cell changes and mark items as modified."""
+```
+
+### Sync Settings Storage
+
+Sync settings are stored in JSON format at `database/sync_settings.json`:
+
+```json
+{
+   "auto_sync_enabled": true,
+   "sync_frequency": "On application close",
+   "max_backups": 5,
+   "last_sync": "2023-08-24 15:30:45"
+}
+```
+
+### Implementation Notes
+
+1. **Timer-based Sync**
+
+   -  Uses QTimer with different intervals based on sync frequency
+   -  Hourly: Checks every 10 minutes if an hour has passed since last sync
+   -  Daily: Checks every hour if a day has passed since last sync
+
+2. **UI Indicators**
+
+   -  Modified items are displayed in bold text
+   -  A status message is shown in the status bar during automatic sync
+
+3. **Error Handling**
+   -  Authentication failures are gracefully handled
+   -  Network errors during sync are reported to the user
+   -  File errors include appropriate cleanup of temporary files
+
+### Flow Diagrams
+
+#### Automatic Sync Flow
+
+1. User enables automatic sync in settings
+2. Timer starts based on selected frequency
+3. When timer triggers, `check_auto_sync()` verifies if sync is needed
+4. If needed, `perform_auto_sync()` executes:
+   -  Checks for unsaved changes and saves them
+   -  Creates temp backup file
+   -  Uploads to Google Drive
+   -  Prunes old backups if needed
+   -  Updates last sync timestamp
+   -  Shows status message
+
+#### Backup on Exit Flow
+
+1. User closes application
+2. `closeEvent()` handler checks for unsaved changes
+3. If present, prompts user to save changes
+4. Checks if auto sync is enabled for "On application close"
+5. If yes, prompts user to confirm sync
+6. If confirmed, performs backup and then exits
+7. If not confirmed, exits without backup
+
+### Adding New Sync Providers
+
+To add support for additional cloud storage providers:
+
+1. Create a new handler class similar to `GoogleDriveHandler`
+2. Implement authentication, upload, download, and file management methods
+3. Create a UI dialog similar to `DriveBackupDialog`
+4. Add menu options in `MainWindow`
+5. Update sync settings to include provider selection
+
+The existing architecture is designed to be extensible, allowing for additional cloud providers with minimal changes to the core synchronization logic.

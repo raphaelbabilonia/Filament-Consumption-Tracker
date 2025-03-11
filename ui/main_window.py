@@ -5,6 +5,8 @@ import os
 import sys
 import shutil
 import datetime
+import json
+import tempfile
 from PyQt5.QtWidgets import (QMainWindow, QTabWidget, QMessageBox, QAction, 
                             QStatusBar, QLabel, QWidget, QVBoxLayout,
                             QFileDialog, QPushButton, QApplication, QProgressBar, QDialog)
@@ -16,6 +18,7 @@ from ui.printer_tab import PrinterTab
 from ui.print_job_tab import PrintJobTab
 from ui.reports_tab import ReportsTab
 from ui.drive_backup_dialog import DriveBackupDialog
+from ui.sync_settings_dialog import SyncSettingsDialog
 from database.db_handler import DatabaseHandler
 
 class MainWindow(QMainWindow):
@@ -28,10 +31,25 @@ class MainWindow(QMainWindow):
         # Initialize database
         self.db_handler = DatabaseHandler()
         
+        # Load sync settings
+        self.sync_settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                        'database', 'sync_settings.json')
+        self.sync_settings = self.load_sync_settings()
+        
         # Setup UI
         self.setWindowTitle("Filament Consumption Tracker")
         self.setMinimumSize(800, 600)
         self.setup_ui()
+        
+        # Setup auto sync timer
+        self.setup_auto_sync()
+        
+        # Set window properties
+        self.setMinimumSize(1200, 800)
+        self.setStyleSheet("QMainWindow {background-color: #f0f0f0;}")
+        
+        # Show reminder if database is empty
+        self.refresh_all_data()
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -225,6 +243,10 @@ class MainWindow(QMainWindow):
         gdrive_action.triggered.connect(self.open_gdrive_backup)
         cloud_menu.addAction(gdrive_action)
         
+        sync_settings_action = QAction("Sync Settings...", self)
+        sync_settings_action.triggered.connect(self.open_sync_settings)
+        cloud_menu.addAction(sync_settings_action)
+        
         file_menu.addSeparator()
         
         # Exit action
@@ -383,174 +405,203 @@ class MainWindow(QMainWindow):
         
     def closeEvent(self, event):
         """Handle window close event."""
-        # Create custom buttons for the message box
-        backup_button = QPushButton("Backup and Exit")
-        exit_button = QPushButton("Exit")
-        cancel_button = QPushButton("Cancel")
+        # Check if there are unsaved changes
+        if self.filament_tab.has_unsaved_changes() or \
+           self.printer_tab.has_unsaved_changes() or \
+           self.print_job_tab.has_unsaved_changes():
+            
+            reply = QMessageBox.question(
+                self, 'Unsaved Changes',
+                'You have unsaved changes. Do you want to save before exiting?',
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+            
+            if reply == QMessageBox.Save:
+                # Save all changes
+                self.filament_tab.save_all_changes()
+                self.printer_tab.save_all_changes()
+                self.print_job_tab.save_all_changes()
+            elif reply == QMessageBox.Cancel:
+                event.ignore()
+                return
         
-        # Create message box with custom buttons
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Confirm Exit")
-        msg_box.setText("Do you want to exit the application?")
-        msg_box.setInformativeText("You can backup your data to Google Drive before exiting.")
-        msg_box.addButton(cancel_button, QMessageBox.RejectRole)
-        msg_box.addButton(exit_button, QMessageBox.AcceptRole)
-        msg_box.addButton(backup_button, QMessageBox.ActionRole)
-        msg_box.setDefaultButton(cancel_button)
+        # Check if automatic sync is enabled
+        if self.sync_settings.get("auto_sync_enabled", False) and \
+           self.sync_settings.get("sync_frequency", "On application close") == "On application close":
+            
+            reply = QMessageBox.question(
+                self, 'Automatic Sync',
+                'Automatic sync is enabled. Do you want to sync with Google Drive before exiting?',
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.backup_to_drive_and_exit(event)
+                return
+            elif reply == QMessageBox.Cancel:
+                event.ignore()
+                return
         
-        # Show the message box and get the result
-        result = msg_box.exec_()
-        
-        # Handle the result based on which button was clicked
-        clicked_button = msg_box.clickedButton()
-        
-        if clicked_button == exit_button:
-            # Just exit
-            event.accept()
-        elif clicked_button == backup_button:
-            # Backup to Google Drive and then exit
-            self.backup_to_drive_and_exit(event)
-        else:
-            # Cancel exit
-            event.ignore()
+        # If we get here, just accept the event and close
+        event.accept()
     
     def backup_to_drive_and_exit(self, close_event):
-        """Backup to Google Drive and then exit the application."""
-        # Create a standalone backup dialog with clearer instructions and a progress bar
+        """Backup database to Google Drive and then exit."""
+        # Create a Google Drive handler
+        from ui.google_drive_utils import GoogleDriveHandler
+        drive_handler = GoogleDriveHandler()
         
-        # Create a custom dialog with progress bar
-        backup_dialog = QDialog(self)
-        backup_dialog.setWindowTitle("Backup Before Exit")
-        backup_dialog.setMinimumWidth(400)
-        backup_dialog.setModal(True)
+        # Set up progress dialog
+        progress_dialog = QDialog(self)
+        progress_dialog.setWindowTitle("Backing up to Google Drive")
+        progress_dialog.setModal(True)
         
-        # Create layout
-        layout = QVBoxLayout(backup_dialog)
+        # Create layout for progress dialog
+        layout = QVBoxLayout(progress_dialog)
         
-        # Status message
-        self.status_label = QLabel("Preparing to backup to Google Drive...")
-        layout.addWidget(self.status_label)
+        # Add message label
+        message_label = QLabel("Backing up database to Google Drive...", progress_dialog)
+        layout.addWidget(message_label)
         
-        # Info text
-        info_label = QLabel("A browser window may open for authentication.\nPlease complete the authentication process if prompted.")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
+        # Add progress bar
+        progress_bar = QProgressBar(progress_dialog)
+        progress_bar.setRange(0, 100)
+        layout.addWidget(progress_bar)
         
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        layout.addWidget(self.progress_bar)
-        
-        # Cancel button
-        cancel_button = QPushButton("Cancel")
-        cancel_button.clicked.connect(lambda: self.abort_backup_exit(backup_dialog))
+        # Add cancel button
+        cancel_button = QPushButton("Cancel", progress_dialog)
+        cancel_button.clicked.connect(lambda: self.abort_backup_exit(progress_dialog))
         layout.addWidget(cancel_button)
         
-        # Create the Google Drive backup dialog but don't show it
-        drive_dialog = DriveBackupDialog(self, self.db_handler)
-        drive_dialog.hide()
+        progress_dialog.setLayout(layout)
+        progress_dialog.resize(400, 150)
         
-        # Function to update the dialog message
+        # Function to update message
         def update_message(msg):
-            self.status_label.setText(msg)
-            QApplication.processEvents()
+            message_label.setText(msg)
         
-        # Function to handle progress updates
+        # Function to update progress bar
         def handle_progress(percent):
-            self.progress_bar.setValue(percent)
-            QApplication.processEvents()
+            progress_bar.setValue(percent)
         
         # Function to handle backup completion
         def handle_backup_completion(success, file_id, message):
-            backup_dialog.close()
+            drive_handler.upload_completed.disconnect(handle_backup_completion)
+            drive_handler.upload_progress.disconnect(handle_progress)
+            
+            progress_dialog.close()
             
             if success:
-                QMessageBox.information(
-                    self,
-                    "Backup Complete",
-                    "Database successfully backed up to Google Drive.\nThe application will now exit."
-                )
-                # Exit the application after a short delay to allow UI to update
-                QTimer.singleShot(500, lambda: QApplication.exit(0))
-            else:
-                # Check if it's an SSL error
-                if "SSL" in message or "handshake" in message:
-                    error_message = (
-                        f"A network security error occurred: {message}\n\n"
-                        "This is likely a temporary connection issue with Google Drive.\n"
-                        "Do you want to exit without backup?"
-                    )
-                else:
-                    error_message = f"Failed to backup to Google Drive: {message}\n\nDo you still want to exit?"
+                # Update last sync time in settings
+                self.sync_settings["last_sync"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                reply = QMessageBox.question(
-                    self,
-                    "Backup Failed",
-                    error_message,
+                # Save settings
+                try:
+                    os.makedirs(os.path.dirname(self.sync_settings_path), exist_ok=True)
+                    with open(self.sync_settings_path, 'w') as f:
+                        json.dump(self.sync_settings, f, indent=4)
+                except Exception:
+                    pass
+                
+                # Show success message
+                QMessageBox.information(self, "Backup Success",
+                                       f"Database successfully backed up to Google Drive.\n\n{message}")
+                
+                # Close the application
+                close_event.accept()
+            else:
+                # Show error message
+                reply = QMessageBox.critical(
+                    self, "Backup Failed",
+                    f"Failed to backup to Google Drive: {message}\n\nDo you want to exit anyway?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
                 
                 if reply == QMessageBox.Yes:
-                    # Exit the application after a short delay
-                    QTimer.singleShot(500, lambda: QApplication.exit(0))
+                    close_event.accept()
                 else:
-                    # If user doesn't want to exit, offer to retry the backup
-                    retry_reply = QMessageBox.question(
-                        self,
-                        "Retry Backup",
-                        "Would you like to try the backup again?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.Yes
-                    )
-                    
-                    if retry_reply == QMessageBox.Yes:
-                        # Try again with a fresh dialog
-                        self.backup_to_drive_and_exit(close_event)
+                    close_event.ignore()
         
         # Function to handle authentication completion
         def handle_auth_completion(success, message):
+            drive_handler.auth_completed.disconnect(handle_auth_completion)
+            
             if success:
-                update_message("Connected to Google Drive. Starting backup...")
+                update_message("Authenticated with Google Drive. Preparing backup...")
                 
-                # Authentication successful, start backup
-                drive_dialog.app_folder_id = drive_dialog.drive_handler.create_or_get_app_folder()
-                drive_dialog.backup_to_drive()
+                # Create backup file
+                try:
+                    # Create backup file with timestamp
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_filename = f"filament_tracker_backup_{timestamp}.db"
+                    
+                    # Use temp directory for backup file
+                    temp_dir = tempfile.gettempdir()
+                    backup_path = os.path.join(temp_dir, backup_filename)
+                    
+                    # Copy database to backup location
+                    shutil.copy2(self.db_handler.db_path, backup_path)
+                    
+                    # Connect upload signals
+                    drive_handler.upload_completed.connect(handle_backup_completion)
+                    drive_handler.upload_progress.connect(handle_progress)
+                    
+                    # Get max backups setting
+                    max_backups = self.sync_settings.get("max_backups", 5)
+                    
+                    # Start upload
+                    update_message("Uploading database to Google Drive...")
+                    app_folder = drive_handler.create_or_get_app_folder()
+                    drive_handler.upload_file(backup_path, backup_filename, app_folder, max_backups=max_backups)
+                    
+                except Exception as e:
+                    progress_dialog.close()
+                    
+                    # Show error message
+                    reply = QMessageBox.critical(
+                        self, "Backup Failed",
+                        f"Failed to create backup file: {str(e)}\n\nDo you want to exit anyway?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    
+                    if reply == QMessageBox.Yes:
+                        close_event.accept()
+                    else:
+                        close_event.ignore()
             else:
-                backup_dialog.close()
+                progress_dialog.close()
                 
-                # Authentication failed, ask if user still wants to exit
-                reply = QMessageBox.question(
-                    self,
-                    "Authentication Failed",
-                    f"Failed to authenticate with Google Drive: {message}\n\nDo you still want to exit without backup?",
+                # Show error message
+                reply = QMessageBox.critical(
+                    self, "Authentication Failed",
+                    f"Failed to authenticate with Google Drive: {message}\n\nDo you want to exit anyway?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
                 
                 if reply == QMessageBox.Yes:
-                    # Exit the application after a short delay
-                    QTimer.singleShot(500, lambda: QApplication.exit(0))
+                    close_event.accept()
+                else:
+                    close_event.ignore()
         
-        # Connect signals
-        drive_dialog.drive_handler.upload_completed.connect(handle_backup_completion)
-        drive_dialog.drive_handler.auth_completed.connect(handle_auth_completion)
-        drive_dialog.drive_handler.upload_progress.connect(handle_progress)
+        # Connect authentication signal
+        drive_handler.auth_completed.connect(handle_auth_completion)
         
-        # Connect cancel button
-        cancel_button.clicked.connect(lambda: drive_dialog.drive_handler.cancel_upload())
+        # Show progress dialog
+        progress_dialog.show()
         
-        # Show the backup dialog
-        backup_dialog.show()
-        QApplication.processEvents()
-        
-        # Start authentication (this will trigger backup after authentication)
-        drive_dialog.authenticate()
-        
-        # Don't accept or ignore the close event yet - we'll do that in the callback
-        close_event.ignore()
+        # Start authentication
+        if drive_handler.is_authenticated():
+            # Already authenticated, trigger the completion handler directly
+            handle_auth_completion(True, "Already authenticated")
+        else:
+            # Need to authenticate
+            update_message("Authenticating with Google Drive...")
+            drive_handler.authenticate(self)
     
     def abort_backup_exit(self, dialog):
         """Abort the backup and exit process."""
@@ -579,3 +630,158 @@ class MainWindow(QMainWindow):
         
         # Refresh all data
         self.refresh_all_data()
+
+    def open_sync_settings(self):
+        """Open the sync settings dialog."""
+        dialog = SyncSettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.sync_settings = dialog.settings
+            # Update auto sync timer based on new settings
+            self.update_auto_sync_timer()
+    
+    def load_sync_settings(self):
+        """Load synchronization settings from file."""
+        default_settings = {
+            "auto_sync_enabled": False,
+            "sync_frequency": "On application close",
+            "max_backups": 5,
+            "last_sync": "Never"
+        }
+        
+        if os.path.exists(self.sync_settings_path):
+            try:
+                with open(self.sync_settings_path, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                return default_settings
+        return default_settings
+
+    def setup_auto_sync(self):
+        """Set up the automatic synchronization timer based on settings."""
+        self.auto_sync_timer = QTimer(self)
+        self.auto_sync_timer.timeout.connect(self.check_auto_sync)
+        
+        # Set initial timer interval based on sync frequency
+        self.update_auto_sync_timer()
+    
+    def update_auto_sync_timer(self):
+        """Update the auto sync timer based on current settings."""
+        if self.sync_settings.get("auto_sync_enabled", False):
+            frequency = self.sync_settings.get("sync_frequency", "On application close")
+            
+            if frequency == "Hourly":
+                # Hourly sync (check every 10 minutes to see if an hour has passed)
+                self.auto_sync_timer.start(10 * 60 * 1000)  # 10 minutes in milliseconds
+            elif frequency == "Daily":
+                # Daily sync (check every hour to see if a day has passed)
+                self.auto_sync_timer.start(60 * 60 * 1000)  # 1 hour in milliseconds
+            else:
+                # On application close - stop the timer
+                self.auto_sync_timer.stop()
+        else:
+            # Auto sync disabled - stop the timer
+            self.auto_sync_timer.stop()
+    
+    def check_auto_sync(self):
+        """Check if it's time to perform an automatic sync based on the schedule."""
+        if not self.sync_settings.get("auto_sync_enabled", False):
+            return
+        
+        frequency = self.sync_settings.get("sync_frequency", "On application close")
+        last_sync_str = self.sync_settings.get("last_sync", "Never")
+        
+        # If never synced, do it now
+        if last_sync_str == "Never":
+            self.perform_auto_sync()
+            return
+        
+        try:
+            last_sync = datetime.datetime.strptime(last_sync_str, "%Y-%m-%d %H:%M:%S")
+            now = datetime.datetime.now()
+            
+            if frequency == "Hourly":
+                # Check if an hour has passed since last sync
+                if (now - last_sync).total_seconds() >= 3600:  # 3600 seconds = 1 hour
+                    self.perform_auto_sync()
+            elif frequency == "Daily":
+                # Check if a day has passed since last sync
+                if (now - last_sync).total_seconds() >= 86400:  # 86400 seconds = 1 day
+                    self.perform_auto_sync()
+        except Exception as e:
+            print(f"Error checking auto sync schedule: {str(e)}")
+    
+    def perform_auto_sync(self):
+        """Perform an automatic sync without user interaction."""
+        # Check if there are any unsaved changes first
+        if self.filament_tab.has_unsaved_changes() or \
+           self.printer_tab.has_unsaved_changes() or \
+           self.print_job_tab.has_unsaved_changes():
+            
+            # Save all changes first
+            self.filament_tab.save_all_changes()
+            self.printer_tab.save_all_changes()
+            self.print_job_tab.save_all_changes()
+        
+        # Show a notification in the status bar
+        self.statusBar().showMessage("Starting automatic sync to Google Drive...", 5000)
+        
+        # Create a Google Drive handler
+        from ui.google_drive_utils import GoogleDriveHandler
+        drive_handler = GoogleDriveHandler()
+        
+        if not drive_handler.is_authenticated():
+            # Can't do auto sync without authentication
+            self.statusBar().showMessage("Automatic sync failed: Not authenticated with Google Drive", 5000)
+            return
+        
+        # Create a temporary backup file
+        temp_dir = tempfile.gettempdir()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"filament_tracker_backup_{timestamp}.db"
+        backup_path = os.path.join(temp_dir, backup_filename)
+        
+        # Backup the database to the temporary file
+        try:
+            shutil.copy2(self.db_handler.db_path, backup_path)
+        except Exception as e:
+            self.statusBar().showMessage(f"Automatic sync failed: {str(e)}", 5000)
+            return
+        
+        # Get max backups setting
+        max_backups = self.sync_settings.get("max_backups", 5)
+        
+        # Upload to Google Drive
+        def handle_upload_completed(success, file_id, message):
+            # Disconnect the signal
+            drive_handler.upload_completed.disconnect(handle_upload_completed)
+            
+            if success:
+                # Update last sync time
+                self.sync_settings["last_sync"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Save settings
+                try:
+                    os.makedirs(os.path.dirname(self.sync_settings_path), exist_ok=True)
+                    with open(self.sync_settings_path, 'w') as f:
+                        json.dump(self.sync_settings, f, indent=4)
+                except Exception:
+                    pass
+                
+                self.statusBar().showMessage("Automatic sync completed successfully", 5000)
+            else:
+                self.statusBar().showMessage(f"Automatic sync failed: {message}", 5000)
+            
+            # Clean up the temporary file
+            try:
+                os.remove(backup_path)
+            except:
+                pass
+        
+        # Connect the signal
+        drive_handler.upload_completed.connect(handle_upload_completed)
+        
+        # Get the app folder ID
+        app_folder_id = drive_handler.create_or_get_app_folder()
+        
+        # Start the upload
+        drive_handler.upload_file(backup_path, backup_filename, app_folder_id, max_backups=max_backups)
