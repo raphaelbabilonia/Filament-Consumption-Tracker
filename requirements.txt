@@ -3,3 +3,6 @@ matplotlib==3.7.1
 pandas==2.0.0
 SQLAlchemy==2.0.15
 pillow==9.5.0
+google-api-python-client==2.102.0
+google-auth-httplib2==0.1.0
+google-auth-oauthlib==1.0.0

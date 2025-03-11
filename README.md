@@ -37,11 +37,41 @@ A comprehensive desktop application for 3D printing enthusiasts to track filamen
    -  Customizable date ranges
 
 -  **Data Management**
-   -  Built-in backup and restore functionality
+   -  Built-in local backup and restore functionality
+   -  Google Drive cloud backup integration with backup-on-exit feature
+   -  Optimized upload process for small and large databases
+   -  Easy-to-use restore functionality
    -  Data export to CSV format
    -  Automatic database versioning
 
 ## Recent Updates
+
+### Version 1.4.1
+
+-  **Optimized Cloud Backup System**
+   -  Improved upload speeds with smart file size detection
+   -  Added direct upload for small databases (<5MB) for faster backups
+   -  Enhanced chunked upload with 5MB chunks for larger databases
+   -  Implemented automatic retry logic for network issues
+   -  Added backup-on-exit dialog with progress tracking
+   -  Fixed UI responsiveness during backup operations
+   -  Improved error handling and recovery
+
+### Version 1.4.0
+
+-  **Cloud Backup Integration**
+
+   -  Added Google Drive integration for cloud backup/restore
+   -  Secure authentication using OAuth 2.0
+   -  Automatic folder creation and management
+   -  Easy-to-use interface for cloud operations
+   -  Comprehensive setup documentation
+
+-  **Enhanced Database Management**
+   -  Reorganized backup/restore menu for better usability
+   -  Added clear separation between local and cloud backup options
+   -  Improved database reconnection after restore operations
+   -  Enhanced error handling for backup/restore operations
 
 ### Version 1.3.0
 
