@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QHeaderView, QFormLayout, QDateEdit, QTabWidget,
                              QSplitter, QDialog, QDialogButtonBox, QInputDialog,
                              QListWidget, QListWidgetItem, QPlainTextEdit, QCheckBox,
-                             QMenu, QAction, QScrollArea)
+                             QMenu, QAction, QScrollArea, QSpinBox)
 from PyQt5.QtCore import Qt, QDate, QSortFilterProxyModel, QTimer
 from PyQt5.QtGui import QColor, QCursor
 
@@ -73,12 +73,30 @@ class FilamentDialog(QDialog):
         form_layout.addRow("Spool Weight (g):", self.spool_weight_input)
         
         # Price
+        price_layout = QVBoxLayout()
+        price_input_layout = QHBoxLayout()
+        
         self.price_input = QDoubleSpinBox()
         self.price_input.setRange(0, 1000)
+        self.price_input.setValue(25)  # Default price
         self.price_input.setPrefix("$ ")
-        if self.filament_data and 'price' in self.filament_data:
-            self.price_input.setValue(self.filament_data.get('price', 0))
-        form_layout.addRow("Price:", self.price_input)
+        price_input_layout.addWidget(self.price_input)
+        price_layout.addLayout(price_input_layout)
+        
+        # Quick price buttons
+        quick_price_layout = QHBoxLayout()
+        quick_price_values = [13, 14, 15, 25, 30]
+        
+        for price in quick_price_values:
+            btn = QPushButton(f"${price}")
+            btn.setMaximumWidth(40)  # Make buttons compact
+            btn.clicked.connect(lambda checked, p=price: self.price_input.setValue(p))
+            quick_price_layout.addWidget(btn)
+        
+        quick_price_layout.addStretch()
+        price_layout.addLayout(quick_price_layout)
+        
+        form_layout.addRow("Price:", price_layout)
         
         # Purchase date
         self.date_input = QDateEdit()
@@ -88,6 +106,15 @@ class FilamentDialog(QDialog):
         else:
             self.date_input.setDate(QDate.currentDate())
         form_layout.addRow("Purchase Date:", self.date_input)
+        
+        # Number of spools to add
+        self.spool_count_input = QSpinBox()
+        self.spool_count_input.setRange(1, 100)
+        self.spool_count_input.setValue(1)
+        if self.filament_data:  # In edit mode, we don't need the spool count
+            self.spool_count_input.hide()
+        else:
+            form_layout.addRow("Number of Spools:", self.spool_count_input)
         
         # Buttons
         self.button_box = QDialogButtonBox(
@@ -110,7 +137,8 @@ class FilamentDialog(QDialog):
             'quantity_remaining': self.quantity_input.value(),
             'spool_weight': self.spool_weight_input.value(),
             'price': self.price_input.value(),
-            'purchase_date': self.date_input.date().toPyDate()
+            'purchase_date': self.date_input.date(),
+            'spool_count': self.spool_count_input.value() if hasattr(self, 'spool_count_input') else 1
         }
 
 
@@ -473,10 +501,15 @@ class FilamentTab(QWidget):
     """Filament inventory management tab."""
     
     def __init__(self, db_handler):
-        """Initialize filament tab."""
+        """Initialize the filament tab."""
         super().__init__()
-        
         self.db_handler = db_handler
+        self.filament_data = None
+        self.max_id = 0
+        
+        # Default minimum value for all ideal quantities
+        self.min_ideal_qty = 0
+        
         self.setup_ui()
         self.load_filaments()
         self.load_aggregated_inventory()
@@ -547,17 +580,42 @@ class FilamentTab(QWidget):
         form_layout.addRow("Quantity Remaining:", self.quantity_input)
         
         # Price
+        price_layout = QVBoxLayout()
+        price_input_layout = QHBoxLayout()
+        
         self.price_input = QDoubleSpinBox()
         self.price_input.setRange(0, 1000)
         self.price_input.setValue(25)  # Default price
         self.price_input.setPrefix("$ ")
-        form_layout.addRow("Price:", self.price_input)
+        price_input_layout.addWidget(self.price_input)
+        price_layout.addLayout(price_input_layout)
+        
+        # Quick price buttons
+        quick_price_layout = QHBoxLayout()
+        quick_price_values = [13, 14, 15, 25, 30]
+        
+        for price in quick_price_values:
+            btn = QPushButton(f"${price}")
+            btn.setMaximumWidth(40)  # Make buttons compact
+            btn.clicked.connect(lambda checked, p=price: self.price_input.setValue(p))
+            quick_price_layout.addWidget(btn)
+        
+        quick_price_layout.addStretch()
+        price_layout.addLayout(quick_price_layout)
+        
+        form_layout.addRow("Price:", price_layout)
         
         # Purchase date
         self.date_input = QDateEdit()
         self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(True)
         form_layout.addRow("Purchase Date:", self.date_input)
+        
+        # Number of spools to add
+        self.spool_count_input = QSpinBox()
+        self.spool_count_input.setRange(1, 100)
+        self.spool_count_input.setValue(1)
+        form_layout.addRow("Number of Spools:", self.spool_count_input)
         
         # Add button
         button_layout = QHBoxLayout()
@@ -1007,22 +1065,31 @@ class FilamentTab(QWidget):
             quantity = self.quantity_input.value()
             price = self.price_input.value()
             purchase_date = self.date_input.date().toPyDate()
+            spool_count = 1
+            
+            # If this is from the dialog, try to get the spool count
+            if hasattr(self, 'spool_count_input'):
+                spool_count = self.spool_count_input.value()
             
             # Basic validation
             if not filament_type or not color or not brand:
                 QMessageBox.warning(self, "Validation Error", "Type, color, and brand are required fields.")
                 return
-                
-            # Add to database
-            self.db_handler.add_filament(
-                filament_type=filament_type,
-                color=color,
-                brand=brand,
-                spool_weight=spool_weight,
-                quantity_remaining=quantity,
-                price=price,
-                purchase_date=purchase_date
-            )
+            
+            # Add the spools to database
+            success_count = 0
+            for _ in range(spool_count):
+                # Add to database
+                self.db_handler.add_filament(
+                    filament_type=filament_type,
+                    color=color,
+                    brand=brand,
+                    spool_weight=spool_weight,
+                    quantity_remaining=quantity,
+                    price=price,
+                    purchase_date=purchase_date
+                )
+                success_count += 1
             
             # Clear inputs
             self.color_combo.clearEditText()
@@ -1036,7 +1103,10 @@ class FilamentTab(QWidget):
             self.load_aggregated_inventory()
             self.populate_dynamic_dropdowns()  # This will refresh all dropdowns including types
             
-            QMessageBox.information(self, "Success", "Filament added successfully!")
+            if spool_count > 1:
+                QMessageBox.information(self, "Success", f"{success_count} filament spools added successfully!")
+            else:
+                QMessageBox.information(self, "Success", "Filament added successfully!")
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add filament: {str(e)}")
