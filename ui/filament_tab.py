@@ -921,22 +921,20 @@ class FilamentTab(QWidget):
                 # Color code filament quantities based on percentage remaining
                 remaining_percentage = filament.quantity_remaining / filament.spool_weight * 100
                 
-                # Apply appropriate color coding based on percentage remaining
+                # Improved color coding based on remaining percentage, in 20% increments
                 for col in range(1, 8):
                     item = self.filament_table.item(row, col)
-                    
-                    # New spool (near 100%)
-                    if remaining_percentage >= 95:
-                        item.setBackground(QColor(200, 255, 200))  # Light green
-                    # More than 50% remaining
-                    elif remaining_percentage > 50:
-                        item.setBackground(QColor(200, 230, 255))  # Light blue
-                    # Between 20% and 50% remaining
+                
+                    if remaining_percentage > 80:
+                        item.setBackground(QColor(200, 255, 200))  # Very Light Green (81-100%)
+                    elif remaining_percentage > 60:
+                        item.setBackground(QColor(220, 245, 255))  # Very Light Cyan (61-80%)
+                    elif remaining_percentage > 40:
+                        item.setBackground(QColor(255, 250, 200))  # Very Light Yellow (41-60%)
                     elif remaining_percentage > 20:
-                        item.setBackground(QColor(255, 200, 130))  # Orange
-                    # Less than 20% remaining
+                        item.setBackground(QColor(255, 220, 180))  # Very Light Orange (21-40%)
                     else:
-                        item.setBackground(QColor(255, 200, 200))  # Light red (existing)
+                        item.setBackground(QColor(255, 200, 200))  # Very Light Red (0-20%)
                 
             # Update dropdowns with current values
             self.populate_dynamic_dropdowns()
@@ -981,22 +979,20 @@ class FilamentTab(QWidget):
                 # Color code filament quantities based on percentage remaining
                 remaining_percentage = item['quantity_remaining'] / item['total_quantity'] * 100
                 
-                # Apply appropriate color coding based on percentage remaining
+                # Improved color coding based on remaining percentage, in 20% increments
                 for col in range(7):
                     item = self.aggregated_table.item(row, col)
-                    
-                    # New spool (near 100%)
-                    if remaining_percentage >= 95:
-                        item.setBackground(QColor(200, 255, 200))  # Light green
-                    # More than 50% remaining
-                    elif remaining_percentage > 50:
-                        item.setBackground(QColor(200, 230, 255))  # Light blue
-                    # Between 20% and 50% remaining
+                
+                    if remaining_percentage > 80:
+                        item.setBackground(QColor(200, 255, 200))  # Very Light Green (81-100%)
+                    elif remaining_percentage > 60:
+                        item.setBackground(QColor(220, 245, 255))  # Very Light Cyan (61-80%)
+                    elif remaining_percentage > 40:
+                        item.setBackground(QColor(255, 250, 200))  # Very Light Yellow (41-60%)
                     elif remaining_percentage > 20:
-                        item.setBackground(QColor(255, 200, 130))  # Orange
-                    # Less than 20% remaining
+                        item.setBackground(QColor(255, 220, 180))  # Very Light Orange (21-40%)
                     else:
-                        item.setBackground(QColor(255, 200, 200))  # Light red (existing)
+                        item.setBackground(QColor(255, 200, 200))  # Very Light Red (0-20%)
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load aggregated inventory: {str(e)}")
@@ -1496,10 +1492,6 @@ class FilamentTab(QWidget):
         # Get base color based on percentage
         base_color = self._get_status_color(percentage)
         
-        # For groups, make the color slightly darker to distinguish them
-        if is_group:
-            base_color = base_color.darker(110)  # 10% darker
-        
         # Apply color to all cells in the row
         for col in range(7):
             table_item = self.status_table.item(row, col)
@@ -1509,19 +1501,19 @@ class FilamentTab(QWidget):
     def _get_status_color(self, percentage):
         """Get the appropriate color for a given percentage."""
         if percentage is None:
-            return QColor(240, 240, 240)  # Light gray for "No Target Set"
+            return QColor(240, 240, 240)  # Light Gray for "No Target Set"
         elif percentage == 0:
-            return QColor(255, 200, 200)  # Light red for "Out of Stock" 
+            return QColor(255, 200, 200)  # Very Light Red for "Out of Stock"
         elif percentage < 20:
-            return QColor(255, 150, 150)  # Red for "Critical"
+            return QColor(255, 200, 200)  # Very Light Red for "Critical - Order Now"
         elif percentage < 50:
-            return QColor(255, 200, 150)  # Orange for "Low"
+            return QColor(255, 220, 180)  # Very Light Orange for "Low - Order Soon"
         elif percentage < 95:
-            return QColor(200, 225, 255)  # Light blue for "Adequate"
+            return QColor(255, 250, 200)  # Very Light Yellow for "Adequate"
         elif percentage < 120:
-            return QColor(200, 255, 200)  # Light green for "Optimal"
+            return QColor(200, 255, 200)  # Very Light Green for "Optimal"
         else:
-            return QColor(230, 210, 255)  # Light purple for "Overstocked"
+            return QColor(230, 210, 255)  # Very Light Purple for "Overstocked"
     
     def manage_filament_links(self):
         """Open a menu to manage filament link groups."""
@@ -1964,24 +1956,22 @@ class FilamentTab(QWidget):
         if item is None:
             return  # Skip if item is None
             
+        color = None
         if percentage is None:
-            # No ideal quantity set
-            item.setBackground(QColor(240, 240, 240))  # Light gray
+            color = QColor(240, 240, 240)  # Light Gray for "No Target Set"
         elif percentage == 0:
-            # Out of stock
-            item.setBackground(QColor(255, 150, 150))  # Bright red
+            color = QColor(255, 200, 200)  # Very Light Red for "Out of Stock"
         elif percentage < 20:
-            # Critical - less than 20% of ideal
-            item.setBackground(QColor(255, 200, 200))  # Light red
+            color = QColor(255, 200, 200)  # Very Light Red for "Critical - Order Now"
         elif percentage < 50:
-            # Low - less than 50% of ideal
-            item.setBackground(QColor(255, 200, 130))  # Orange
+            color = QColor(255, 220, 180)  # Very Light Orange for "Low - Order Soon"
         elif percentage < 95:
-            # Adequate - between 50% and 95% of ideal
-            item.setBackground(QColor(200, 230, 255))  # Light blue
+            color = QColor(255, 250, 200)  # Very Light Yellow for "Adequate"
         elif percentage < 120:
-            # Optimal - between 95% and 120% of ideal
-            item.setBackground(QColor(200, 255, 200))  # Light green
+            color = QColor(200, 255, 200)  # Very Light Green for "Optimal"
         else:
-            # Overstocked - more than 120% of ideal
-            item.setBackground(QColor(230, 230, 255))  # Very light purple
+            color = QColor(230, 210, 255)  # Very Light Purple for "Overstocked"
+            
+        # Apply the color to the item
+        item.setBackground(color)
+        return color

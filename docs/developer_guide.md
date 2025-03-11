@@ -3,6 +3,7 @@
 This guide provides technical information for developers who want to understand, modify, or contribute to the Filament Consumption Tracker application.
 
 ## Table of Contents
+
 1. [Architecture Overview](#architecture-overview)
 2. [Development Setup](#development-setup)
 3. [Project Structure](#project-structure)
@@ -12,23 +13,26 @@ This guide provides technical information for developers who want to understand,
 7. [Adding Features](#adding-features)
 8. [Testing](#testing)
 9. [Deployment](#deployment)
-10. [Contributing Guidelines](#contributing-guidelines)
+10.   [Contributing Guidelines](#contributing-guidelines)
 
 ## Architecture Overview
 
 ### Core Components
-- **Database Layer**: SQLAlchemy ORM for database operations
-- **UI Layer**: PyQt5 for the graphical interface
-- **Business Logic**: Handled in the database handler and UI components
-- **Data Visualization**: Matplotlib for charts and graphs
+
+-  **Database Layer**: SQLAlchemy ORM for database operations
+-  **UI Layer**: PyQt5 for the graphical interface
+-  **Business Logic**: Handled in the database handler and UI components
+-  **Data Visualization**: Matplotlib for charts and graphs
 
 ### Design Patterns
-- **Model-View Pattern**: Separation of database models and UI
-- **Repository Pattern**: Database operations encapsulated in db_handler
-- **Factory Pattern**: Used for creating UI components
-- **Observer Pattern**: Used for updating UI components when data changes
+
+-  **Model-View Pattern**: Separation of database models and UI
+-  **Repository Pattern**: Database operations encapsulated in db_handler
+-  **Factory Pattern**: Used for creating UI components
+-  **Observer Pattern**: Used for updating UI components when data changes
 
 ### Event Flow
+
 1. User interactions trigger UI events
 2. UI components call methods in the database handler
 3. Database operations are performed
@@ -38,6 +42,7 @@ This guide provides technical information for developers who want to understand,
 ## Development Setup
 
 ### Prerequisites
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
@@ -45,21 +50,24 @@ pip install -r requirements.txt
 ```
 
 ### Development Dependencies
-- Python 3.7+
-- PyQt5
-- SQLAlchemy
-- Matplotlib
-- pandas (for data manipulation)
-- pytest (for testing)
+
+-  Python 3.7+
+-  PyQt5
+-  SQLAlchemy
+-  Matplotlib
+-  pandas (for data manipulation)
+-  pytest (for testing)
 
 ### IDE Configuration
+
 Recommended VS Code settings:
+
 ```json
 {
-    "python.linting.enabled": true,
-    "python.linting.pylintEnabled": true,
-    "python.formatting.provider": "black",
-    "editor.formatOnSave": true
+   "python.linting.enabled": true,
+   "python.linting.pylintEnabled": true,
+   "python.formatting.provider": "black",
+   "editor.formatOnSave": true
 }
 ```
 
@@ -68,36 +76,42 @@ Recommended VS Code settings:
 ### Core Modules
 
 #### database/
-- `db_handler.py`: Database operations and connection management
-- Key classes: `DatabaseHandler`
-- Handles all CRUD operations and database transactions
+
+-  `db_handler.py`: Database operations and connection management
+-  Key classes: `DatabaseHandler`
+-  Handles all CRUD operations and database transactions
 
 #### models/
-- `schema.py`: SQLAlchemy models and database schema
-- Key models:
-  - `Filament`
-  - `Printer`
-  - `PrinterComponent`
-  - `PrintJob`
+
+-  `schema.py`: SQLAlchemy models and database schema
+-  Key models:
+   -  `Filament`
+   -  `Printer`
+   -  `PrinterComponent`
+   -  `PrintJob`
 
 #### ui/
-- `main_window.py`: Main application window and menu
-- `filament_tab.py`: Filament inventory interface
-- `printer_tab.py`: Printer management interface
-- `print_job_tab.py`: Print job tracking interface
-- `reports_tab.py`: Reports and analytics interface
+
+-  `main_window.py`: Main application window and menu
+-  `filament_tab.py`: Filament inventory interface
+-  `printer_tab.py`: Printer management interface
+-  `print_job_tab.py`: Print job tracking interface
+-  `reports_tab.py`: Reports and analytics interface
 
 ### Key Files
 
 #### main.py
+
 Entry point for the application. Sets up the main window and initializes the database.
 
 #### requirements.txt
+
 Lists all Python dependencies needed for the project.
 
 ## Database Schema
 
 ### Filament Table
+
 ```python
 class Filament:
     id: Integer (PK)
@@ -111,7 +125,40 @@ class Filament:
     last_updated: DateTime
 ```
 
+### FilamentIdealInventory Table
+
+```python
+class FilamentIdealInventory:
+    id: Integer (PK)
+    type: String(20)
+    color: String(50)
+    brand: String(50)
+    ideal_quantity: Float
+```
+
+### FilamentLinkGroup Table
+
+```python
+class FilamentLinkGroup:
+    id: Integer (PK)
+    name: String(100)
+    description: Text (Nullable)
+    ideal_quantity: Float
+```
+
+### FilamentLink Table
+
+```python
+class FilamentLink:
+    id: Integer (PK)
+    group_id: Integer (FK)
+    type: String(20)
+    color: String(50)
+    brand: String(50)
+```
+
 ### Printer Table
+
 ```python
 class Printer:
     id: Integer (PK)
@@ -122,6 +169,7 @@ class Printer:
 ```
 
 ### PrinterComponent Table
+
 ```python
 class PrinterComponent:
     id: Integer (PK)
@@ -134,6 +182,7 @@ class PrinterComponent:
 ```
 
 ### PrintJob Table
+
 ```python
 class PrintJob:
     id: Integer (PK)
@@ -147,42 +196,191 @@ class PrintJob:
 ```
 
 ### Relationships
-- PrintJob → Filament (Many-to-One)
-- PrintJob → Printer (Many-to-One)
-- PrinterComponent → Printer (Many-to-One)
+
+-  PrintJob → Filament (Many-to-One)
+-  PrintJob → Printer (Many-to-One)
+-  PrinterComponent → Printer (Many-to-One)
+-  FilamentLink → FilamentLinkGroup (Many-to-One)
+
+## Key Components
+
+### Filament Link Groups
+
+#### Implementation Details
+
+Filament Link Groups are implemented using two main tables:
+
+-  `FilamentLinkGroup`: Stores group metadata (name, description, ideal quantity)
+-  `FilamentLink`: Maps filaments to groups using type, color, and brand (composite key matching)
+
+The system is designed to:
+
+1. Allow filaments to be logically grouped while maintaining individual records
+2. Present combined status and statistics in the UI
+3. Apply ideal quantities at the group level
+
+#### Key Methods in DatabaseHandler
+
+```python
+# Creating and managing groups
+create_filament_link_group(name, description=None, ideal_quantity=0)
+update_filament_link_group(group_id, name=None, description=None, ideal_quantity=None)
+delete_filament_link_group(group_id)
+
+# Managing filament associations
+add_filament_to_link_group(group_id, filament_type, color, brand)
+remove_filament_from_link_group(group_id, filament_type, color, brand)
+
+# Retrieving group data
+get_filament_link_groups()
+get_filament_link_group(group_id)
+```
+
+#### Inventory Status Algorithm
+
+The `get_inventory_status()` method in `DatabaseHandler` builds the combined inventory view by:
+
+1. Processing all link groups first
+2. Calculating combined quantities for each group
+3. Creating virtual entries for groups in the results
+4. Marking filaments as "processed" to avoid duplication
+5. Then adding individual filaments that aren't in any group
+
+### Ideal Quantity Preservation
+
+#### Core Implementation
+
+The system uses multiple mechanisms to ensure ideal quantities aren't lost during operations:
+
+1. **Capture and Apply Pattern**:
+
+   ```python
+   # Before operation
+   preserved_quantities = capture_current_ideal_quantities()
+
+   # Perform operation (create/delete group, etc.)
+
+   # After operation
+   refresh_inventory_status(preserved_quantities)
+   ```
+
+2. **Double-Source Value Collection**:
+   The `capture_current_ideal_quantities()` method collects values from both:
+
+   -  The UI table (current visual state)
+   -  The database (persisted values)
+
+   This creates redundancy to prevent data loss.
+
+3. **Zero Detection and Repair**:
+   The `fix_zero_ideal_quantities()` method scans for and repairs any quantities
+   that were inadvertently set to zero.
+
+#### Case-Insensitive Matching
+
+To improve robustness, the system implements case-insensitive matching for filament identification:
+
+```python
+# Simplified example from code
+for p_key, p_value in preserved_ideal_quantities.items():
+    if (p_key[0].upper() == item['type'].upper() and
+        p_key[1].upper() == item['color'].upper() and
+        p_key[2].upper() == item['brand'].upper()):
+        # Match found, apply preserved value
+```
+
+### Color Coding System
+
+#### Color Calculation
+
+The color coding system uses a centralized method to ensure consistency:
+
+```python
+def _get_status_color(self, percentage):
+    """Get the appropriate color for a given percentage."""
+    if percentage is None:
+        return QColor(240, 240, 240)  # Light Gray for "No Target Set"
+    elif percentage == 0:
+        return QColor(255, 200, 200)  # Very Light Red for "Out of Stock"
+    elif percentage < 20:
+        return QColor(255, 200, 200)  # Very Light Red for "Critical - Order Now"
+    elif percentage < 50:
+        return QColor(255, 220, 180)  # Very Light Orange for "Low - Order Soon"
+    elif percentage < 95:
+        return QColor(255, 250, 200)  # Very Light Yellow for "Adequate"
+    elif percentage < 120:
+        return QColor(200, 255, 200)  # Very Light Green for "Optimal"
+    else:
+        return QColor(230, 210, 255)  # Very Light Purple for "Overstocked"
+```
+
+#### Row-Based Coloring
+
+To ensure consistent coloring across all cells in a row, a row-based coloring approach is used:
+
+```python
+def _apply_colors_to_row(self, row, percentage, is_group=False):
+    """Apply color coding to an entire row based on percentage."""
+    # Get base color based on percentage
+    base_color = self._get_status_color(percentage)
+
+    # For groups, make the color slightly darker to distinguish them
+    if is_group:
+        base_color = base_color.darker(110)  # 10% darker
+
+    # Apply color to all cells in the row
+    for col in range(7):
+        table_item = self.status_table.item(row, col)
+        if table_item:  # Make sure item exists before applying color
+            table_item.setBackground(base_color)
+```
+
+This ensures:
+
+1. Consistent coloring across all columns in a row
+2. Visual distinction between group and individual entries
+3. Centralized color logic for easier maintenance
 
 ## UI Components
 
 ### Main Window
-- Implements `QMainWindow`
-- Manages tab widget and menu bar
-- Handles application-wide events
-- Provides backup and restore functionality
+
+-  Implements `QMainWindow`
+-  Manages tab widget and menu bar
+-  Handles application-wide events
+-  Provides backup and restore functionality
 
 ### Tab Implementations
+
 Each tab inherits from `QWidget` and follows a similar pattern:
+
 1. Form for data entry
 2. Table for data display
 3. Control buttons
 4. Optional charts/graphs
 
 ### Data Visualization
-- Uses Matplotlib for charts
-- Embeds charts using `FigureCanvasQTAgg`
-- Updates dynamically with data changes
-- Multiple chart types supported (bar, pie, line)
+
+-  Uses Matplotlib for charts
+-  Embeds charts using `FigureCanvasQTAgg`
+-  Updates dynamically with data changes
+-  Multiple chart types supported (bar, pie, line)
 
 ### Signal-Slot Connections
+
 The application uses PyQt's signal-slot mechanism for event handling:
-- UI signals (button clicks, text changes) are connected to handler methods
-- Cross-tab communication is managed through the main window
+
+-  UI signals (button clicks, text changes) are connected to handler methods
+-  Cross-tab communication is managed through the main window
 
 ## Common Issues & Solutions
 
 ### Recursive Call Pitfalls
+
 One common issue is recursive calls between methods, particularly in the print_job_tab.py file:
 
 #### Problem
+
 ```python
 def search_jobs(self):
     # Perform search
@@ -194,17 +392,18 @@ def apply_filters(self):
 ```
 
 #### Solution
+
 ```python
 def search_jobs(self):
     search_text = self.search_box.text().strip().lower()
-    
+
     # If search box is empty, reload with filters but don't call apply_filters
     if not search_text:
         filament_id = self.filament_filter.currentData()
         printer_id = self.printer_filter.currentData()
         self.load_print_jobs(filament_id=filament_id, printer_id=printer_id)
         return
-        
+
     # Otherwise, apply text filtering directly
     for row in range(self.print_job_table.rowCount()):
         # Filter rows based on content
@@ -213,7 +412,9 @@ def search_jobs(self):
 ### Other Common Issues
 
 #### Signal Blocking
+
 When updating UI elements that trigger signals, block signals temporarily:
+
 ```python
 self.combo_box.blockSignals(True)
 # Update combo box items
@@ -221,7 +422,9 @@ self.combo_box.blockSignals(False)
 ```
 
 #### Database Connectivity
+
 Handle database transactions in try-except blocks:
+
 ```python
 try:
     # Perform database operations
@@ -234,7 +437,9 @@ finally:
 ```
 
 #### Memory Management
+
 For large data operations, consider using generators and limiting query results:
+
 ```python
 # Instead of:
 all_items = db_handler.get_all_items()  # Loads everything in memory
@@ -247,18 +452,21 @@ for batch in db_handler.get_items_in_batches(batch_size=100):
 ## Adding Features
 
 ### Adding a New Tab
+
 1. Create new tab class inheriting from `QWidget`
 2. Implement `setup_ui()` method
 3. Add necessary database operations to `db_handler.py`
 4. Register tab in `main_window.py`
 
 ### Adding Database Fields
+
 1. Update model in `schema.py`
 2. Add corresponding UI elements
 3. Update database handler methods
 4. Handle data migration for existing databases
 
 ### Adding Reports
+
 1. Add new method to `reports_tab.py`
 2. Implement data gathering in `db_handler.py`
 3. Create visualization using Matplotlib
@@ -267,12 +475,14 @@ for batch in db_handler.get_items_in_batches(batch_size=100):
 ## Testing
 
 ### Unit Testing
-- Use pytest for testing
-- Test database operations in isolation
-- Mock database connections
-- Test UI components using QTest
+
+-  Use pytest for testing
+-  Test database operations in isolation
+-  Mock database connections
+-  Test UI components using QTest
 
 ### Example Test Structure
+
 ```python
 def test_add_filament():
     db = DatabaseHandler(':memory:')
@@ -289,14 +499,15 @@ def test_add_filament():
 ```
 
 ### UI Testing
+
 ```python
 def test_search_jobs():
     app = QApplication([])
     tab = PrintJobTab(MockDatabase())
-    
+
     # Simulate typing in search box
     QTest.keyClicks(tab.search_box, "test project")
-    
+
     # Check that filtering was applied
     assert tab.print_job_table.isRowHidden(0) in (True, False)
     app.quit()
@@ -305,19 +516,25 @@ def test_search_jobs():
 ## Deployment
 
 ### Building Executable
+
 Use PyInstaller to create standalone executables:
+
 ```bash
 pyinstaller --onefile --windowed --icon=app_icon.ico main.py
 ```
 
 ### Configuration
+
 The application looks for a config file in the following locations:
+
 1. Current working directory
 2. User's home directory
 3. Application directory
 
 ### Database Initialization
+
 On first run, the application:
+
 1. Checks for an existing database
 2. Creates a new database if none exists
 3. Runs any necessary migrations
@@ -325,12 +542,14 @@ On first run, the application:
 ## Contributing Guidelines
 
 ### Code Style
-- Follow PEP 8 guidelines
-- Use type hints
-- Document all public methods
-- Keep methods focused and single-purpose
+
+-  Follow PEP 8 guidelines
+-  Use type hints
+-  Document all public methods
+-  Keep methods focused and single-purpose
 
 ### Pull Request Process
+
 1. Fork the repository
 2. Create feature branch
 3. Write tests
@@ -338,37 +557,43 @@ On first run, the application:
 5. Submit PR with description
 
 ### Documentation
-- Update relevant documentation files
-- Include docstrings for new methods
-- Update user guide for UI changes
-- Add technical details to developer guide
+
+-  Update relevant documentation files
+-  Include docstrings for new methods
+-  Update user guide for UI changes
+-  Add technical details to developer guide
 
 ### Version Control
-- Follow semantic versioning
-- Use descriptive commit messages
-- Reference issue numbers in commits
-- Keep commits focused and atomic
+
+-  Follow semantic versioning
+-  Use descriptive commit messages
+-  Reference issue numbers in commits
+-  Keep commits focused and atomic
 
 ## Performance Considerations
 
 ### Large Datasets
-- Use pagination for large tables
-- Implement lazy loading for reports
-- Create indices for frequently queried fields
+
+-  Use pagination for large tables
+-  Implement lazy loading for reports
+-  Create indices for frequently queried fields
 
 ### UI Responsiveness
-- Run heavy operations in background threads
-- Use QProgressDialog for long-running operations
-- Implement cancellation for time-consuming processes
+
+-  Run heavy operations in background threads
+-  Use QProgressDialog for long-running operations
+-  Implement cancellation for time-consuming processes
 
 ## Security Considerations
 
 ### Data Validation
-- Validate all user input
-- Sanitize data before database operations
-- Use prepared statements (handled by SQLAlchemy)
+
+-  Validate all user input
+-  Sanitize data before database operations
+-  Use prepared statements (handled by SQLAlchemy)
 
 ### Error Handling
-- Provide user-friendly error messages
-- Log detailed errors for debugging
-- Don't expose sensitive information in error messages
+
+-  Provide user-friendly error messages
+-  Log detailed errors for debugging
+-  Don't expose sensitive information in error messages
