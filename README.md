@@ -211,12 +211,34 @@ For detailed information about using and developing the application, please refe
    -  Tips and best practices
 
 -  [Developer Guide](docs/developer_guide.md) - Technical documentation for developers
+
    -  Architecture overview
    -  Database schema
    -  UI components
    -  Common issues and solutions
    -  Adding new features
    -  Testing procedures
+
+-  [Application Structure](docs/application_structure.md) - Detailed code organization
+
+   -  Directory structure
+   -  Core modules description
+   -  Data flow explanation
+   -  UI architecture details
+   -  Database architecture
+   -  Testing framework
+   -  Cloud sync implementation
+
+-  [Cloud Backup Guide](docs/cloud_backup_guide.md) - Guide for Google Drive integration
+
+   -  Setup instructions
+   -  Usage guide
+   -  Troubleshooting
+
+-  [Test Documentation](tests/README.md) - Information about the test suite
+   -  Test structure
+   -  Running tests
+   -  Writing new tests
 
 ## Screenshots
 

@@ -41,6 +41,9 @@ class PrintJobTab(QWidget):
         self.modified_print_jobs = set()
         self.modified_projects = set()
         
+        # Track current orientation (default to landscape)
+        self.is_portrait = False
+        
         self.setup_ui()
         self.load_print_jobs()
         
@@ -49,7 +52,7 @@ class PrintJobTab(QWidget):
         main_layout = QVBoxLayout()
         
         # Create a splitter for form and table
-        splitter = QSplitter(Qt.Vertical)
+        self.splitter = QSplitter(Qt.Vertical)
         
         # Top part - Add print job form
         top_widget = QWidget()
@@ -323,14 +326,14 @@ class PrintJobTab(QWidget):
         bottom_layout.addLayout(delete_button_layout)
         
         # Add widgets to splitter
-        splitter.addWidget(top_widget)
-        splitter.addWidget(bottom_widget)
+        self.splitter.addWidget(top_widget)
+        self.splitter.addWidget(bottom_widget)
         
         # Set initial sizes of splitter
-        splitter.setSizes([300, 500])
+        self.splitter.setSizes([300, 500])
         
         # Add splitter to main layout
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(self.splitter)
         
         self.setLayout(main_layout)
         
@@ -350,6 +353,68 @@ class PrintJobTab(QWidget):
         # Add context menu to print job table
         self.print_job_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.print_job_table.customContextMenuRequested.connect(self.show_context_menu)
+        
+    def adjust_for_portrait(self, is_portrait):
+        """Adjust the layout for portrait or landscape orientation."""
+        self.is_portrait = is_portrait
+        
+        if is_portrait:
+            # For portrait mode (vertical monitor)
+            self.splitter.setOrientation(Qt.Vertical)
+            
+            # Adjust table columns for narrow width
+            if hasattr(self, 'print_job_table'):
+                # Make sure all columns are visible but prioritize essential ones
+                header = self.print_job_table.horizontalHeader()
+                
+                # Resize all columns to content first
+                header.resizeSections(QHeaderView.ResizeToContents)
+                
+                # Set specific columns to have fixed or smaller widths
+                date_col = 1  # Date column
+                if date_col < self.print_job_table.columnCount():
+                    header.setSectionResizeMode(date_col, QHeaderView.Fixed)
+                    header.resizeSection(date_col, 80)
+                
+                # Set project name column (usually the most important) to stretch
+                project_col = 2  # Project column
+                if project_col < self.print_job_table.columnCount():
+                    header.setSectionResizeMode(project_col, QHeaderView.Stretch)
+                
+                # Make amount column smaller
+                amount_col = 7  # Amount column
+                if amount_col < self.print_job_table.columnCount():
+                    header.setSectionResizeMode(amount_col, QHeaderView.Fixed)
+                    header.resizeSection(amount_col, 70)
+                
+                # Make material cost column smaller
+                cost_col = 9  # Material cost column
+                if cost_col < self.print_job_table.columnCount():
+                    header.setSectionResizeMode(cost_col, QHeaderView.Fixed)
+                    header.resizeSection(cost_col, 90)
+                
+                # Make electricity cost column smaller
+                ecost_col = 10  # Electricity cost column
+                if ecost_col < self.print_job_table.columnCount():
+                    header.setSectionResizeMode(ecost_col, QHeaderView.Fixed)
+                    header.resizeSection(ecost_col, 90)
+            
+            # Adjust any other widgets specific to portrait mode
+            if hasattr(self, 'search_group'):
+                self.search_group.setMaximumHeight(150)
+        else:
+            # For landscape mode (horizontal monitor)
+            self.splitter.setOrientation(Qt.Vertical)
+            
+            # Reset table columns to default
+            if hasattr(self, 'print_job_table'):
+                header = self.print_job_table.horizontalHeader()
+                header.setSectionResizeMode(QHeaderView.Interactive)
+                header.resizeSections(QHeaderView.ResizeToContents)
+            
+            # Reset any other widgets to landscape defaults
+            if hasattr(self, 'search_group'):
+                self.search_group.setMaximumHeight(16777215)  # Reset to default/unlimited
         
     def refresh_filament_data(self):
         """Refresh filament data from database."""

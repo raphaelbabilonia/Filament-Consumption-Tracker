@@ -38,14 +38,13 @@ class MainWindow(QMainWindow):
         
         # Setup UI
         self.setWindowTitle("Filament Consumption Tracker")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(600, 600)  # Changed from 800, 600 to be more adaptable
         self.setup_ui()
         
         # Setup auto sync timer
         self.setup_auto_sync()
         
-        # Set window properties
-        self.setMinimumSize(1200, 800)
+        # Set window properties - Remove fixed size to allow responsive scaling
         self.setStyleSheet("QMainWindow {background-color: #f0f0f0;}")
         
         # Show reminder if database is empty
@@ -83,6 +82,15 @@ class MainWindow(QMainWindow):
         # Create status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        
+        # Apply responsive layout settings
+        self.setMinimumWidth(600)  # Reduced from previous setting
+        self.tabs.setTabPosition(QTabWidget.North)  # Ensure tabs are at the top
+        
+        # Add a timer to check screen orientation and adjust layout
+        self.orientation_timer = QTimer(self)
+        self.orientation_timer.timeout.connect(self.check_screen_orientation)
+        self.orientation_timer.start(1000)  # Check every second
         
     def setup_auto_refresh(self):
         """Set up automatic refresh connections between tabs."""
@@ -785,3 +793,44 @@ class MainWindow(QMainWindow):
         
         # Start the upload
         drive_handler.upload_file(backup_path, backup_filename, app_folder_id, max_backups=max_backups)
+
+    def check_screen_orientation(self):
+        """Check screen orientation and adjust layout accordingly."""
+        screen = QApplication.primaryScreen()
+        geometry = screen.availableGeometry()
+        
+        # Determine if we're in portrait mode (height > width)
+        is_portrait = geometry.height() > geometry.width()
+        
+        if is_portrait:
+            # Configure for vertical orientation
+            self.tabs.setTabPosition(QTabWidget.West)  # Tabs on the left side in portrait mode
+            
+            # Apply specific tab adjustments
+            if hasattr(self.print_job_tab, 'adjust_for_portrait'):
+                self.print_job_tab.adjust_for_portrait(True)
+                
+            if hasattr(self.filament_tab, 'adjust_for_portrait'):
+                self.filament_tab.adjust_for_portrait(True)
+                
+            if hasattr(self.printer_tab, 'adjust_for_portrait'):
+                self.printer_tab.adjust_for_portrait(True)
+                
+            if hasattr(self.reports_tab, 'adjust_for_portrait'):
+                self.reports_tab.adjust_for_portrait(True)
+        else:
+            # Configure for horizontal orientation
+            self.tabs.setTabPosition(QTabWidget.North)  # Tabs on top in landscape mode
+            
+            # Apply specific tab adjustments
+            if hasattr(self.print_job_tab, 'adjust_for_portrait'):
+                self.print_job_tab.adjust_for_portrait(False)
+                
+            if hasattr(self.filament_tab, 'adjust_for_portrait'):
+                self.filament_tab.adjust_for_portrait(False)
+                
+            if hasattr(self.printer_tab, 'adjust_for_portrait'):
+                self.printer_tab.adjust_for_portrait(False)
+                
+            if hasattr(self.reports_tab, 'adjust_for_portrait'):
+                self.reports_tab.adjust_for_portrait(False)

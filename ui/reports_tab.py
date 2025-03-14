@@ -38,6 +38,10 @@ class ReportsTab(QWidget):
         super().__init__()
         
         self.db_handler = db_handler
+        
+        # Track orientation state
+        self.is_portrait = False
+        
         self.setup_ui()
         
         # Initialize with the first tab selected
@@ -1101,3 +1105,81 @@ class ReportsTab(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate cost analysis report: {str(e)}")
+
+    def adjust_for_portrait(self, is_portrait):
+        """Adjust the layout based on screen orientation."""
+        self.is_portrait = is_portrait
+        
+        if is_portrait:
+            # Vertical monitor adjustments
+            
+            # Change tab orientation if subtabs exist
+            if hasattr(self, 'tab_widget'):
+                self.tab_widget.setTabPosition(QTabWidget.West)  # Tabs on the left in portrait
+            elif hasattr(self, 'tabs'):
+                self.tabs.setTabPosition(QTabWidget.West)  # Tabs on the left in portrait
+            
+            # Adjust any splitters to vertical orientation
+            if hasattr(self, 'summary_splitter'):
+                self.summary_splitter.setOrientation(Qt.Vertical)
+            
+            # Optimize report table column widths
+            for table_attr in ['summary_table', 'inventory_table', 'printer_table', 'cost_table',
+                              'filament_usage_table', 'printer_usage_table']:
+                if hasattr(self, table_attr):
+                    table = getattr(self, table_attr)
+                    header = table.horizontalHeader()
+                    header.resizeSections(QHeaderView.ResizeToContents)
+                    
+                    # Make ID columns narrower
+                    if table.columnCount() > 0:
+                        header.setSectionResizeMode(0, QHeaderView.Fixed)
+                        header.resizeSection(0, 40)  # ID column
+                    
+                    # Make date columns fixed width
+                    for i in range(table.columnCount()):
+                        if table.horizontalHeaderItem(i) and "Date" in table.horizontalHeaderItem(i).text():
+                            header.setSectionResizeMode(i, QHeaderView.Fixed)
+                            header.resizeSection(i, 80)
+                    
+                    # Make numeric columns narrower
+                    for i in range(table.columnCount()):
+                        if table.horizontalHeaderItem(i) and any(term in table.horizontalHeaderItem(i).text() for term in ["Amount", "Cost", "Weight", "Price", "Quantity", "Usage"]):
+                            header.setSectionResizeMode(i, QHeaderView.Fixed)
+                            header.resizeSection(i, 70)
+            
+            # Collapse control panels to save vertical space
+            for panel_attr in ['controls_group', 'filter_group', 'date_filter_group']:
+                if hasattr(self, panel_attr):
+                    panel = getattr(self, panel_attr)
+                    panel.setMaximumHeight(150)
+                    
+        else:
+            # Reset to landscape mode (horizontal monitor)
+            
+            # Reset tab orientation
+            if hasattr(self, 'tab_widget'):
+                self.tab_widget.setTabPosition(QTabWidget.North)  # Tabs on top in landscape
+            elif hasattr(self, 'tabs'): 
+                self.tabs.setTabPosition(QTabWidget.North)  # Tabs on top in landscape
+                
+            # Reset splitter orientation
+            if hasattr(self, 'summary_splitter'):
+                self.summary_splitter.setOrientation(Qt.Vertical)  # Usually vertical even in landscape
+            
+            # Reset table columns to default
+            for table_attr in ['summary_table', 'inventory_table', 'printer_table', 'cost_table',
+                              'filament_usage_table', 'printer_usage_table']:
+                if hasattr(self, table_attr):
+                    table = getattr(self, table_attr)
+                    header = table.horizontalHeader()
+                    for i in range(table.columnCount()):
+                        header.setSectionResizeMode(i, QHeaderView.Interactive)
+                    header.resizeSections(QHeaderView.ResizeToContents)
+            
+            # Reset collapsed panels
+            for panel_attr in ['controls_group', 'filter_group', 'date_filter_group']:
+                if hasattr(self, panel_attr):
+                    panel = getattr(self, panel_attr)
+                    panel.setMaximumHeight(16777215)  # Default/unlimited
+                    

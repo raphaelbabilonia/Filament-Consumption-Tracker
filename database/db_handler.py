@@ -129,6 +129,14 @@ class DatabaseHandler:
         finally:
             session.close()
     
+    def get_filament_by_id(self, filament_id):
+        """Get a single filament by its ID."""
+        session = self.Session()
+        try:
+            return session.query(Filament).filter_by(id=filament_id).first()
+        finally:
+            session.close()
+    
     def update_filament_quantity(self, filament_id, new_quantity):
         """Update the remaining quantity of a filament."""
         session = self.Session()

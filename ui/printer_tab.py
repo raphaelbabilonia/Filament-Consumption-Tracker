@@ -160,6 +160,9 @@ class PrinterTab(QWidget):
         self.modified_printers = set()
         self.modified_components = set()
         
+        # Track orientation state
+        self.is_portrait = False
+        
         self.setup_ui()
         self.load_printers()
         self.connect_signals()
@@ -626,3 +629,48 @@ class PrinterTab(QWidget):
         
         # Emit signal to notify that printer data has been updated
         self.printer_updated.emit()
+
+    def adjust_for_portrait(self, is_portrait):
+        """Adjust the layout based on screen orientation."""
+        self.is_portrait = is_portrait
+        
+        if is_portrait:
+            # Vertical monitor adjustments
+            
+            # Optimize printer table column widths for narrower display
+            if hasattr(self, 'printer_table'):
+                header = self.printer_table.horizontalHeader()
+                header.resizeSections(QHeaderView.ResizeToContents)
+                
+                # Make specific columns fixed width and narrower
+                for col_idx, col_width in [
+                    (0, 40),     # ID column
+                    (1, 140),    # Name column
+                    (2, 120),    # Make column
+                    (3, 100),    # Model column
+                    (4, 60),     # Power column
+                    (5, 60)      # Date column
+                ]:
+                    if col_idx < self.printer_table.columnCount():
+                        header.setSectionResizeMode(col_idx, QHeaderView.Fixed)
+                        header.resizeSection(col_idx, col_width)
+            
+            # Adjust form layout if needed
+            if hasattr(self, 'form_layout'):
+                # Reduce spacing in form layout
+                self.form_layout.setVerticalSpacing(5)
+                self.form_layout.setHorizontalSpacing(5)
+        else:
+            # Reset to landscape mode (horizontal monitor)
+            
+            # Reset table columns to default interactive mode
+            if hasattr(self, 'printer_table'):
+                header = self.printer_table.horizontalHeader()
+                for i in range(self.printer_table.columnCount()):
+                    header.setSectionResizeMode(i, QHeaderView.Interactive)
+                header.resizeSections(QHeaderView.ResizeToContents)
+            
+            # Reset form layout spacing if needed
+            if hasattr(self, 'form_layout'):
+                self.form_layout.setVerticalSpacing(10)
+                self.form_layout.setHorizontalSpacing(10)
