@@ -379,6 +379,43 @@ This ensures:
 2. Visual distinction between group and individual entries
 3. Centralized color logic for easier maintenance
 
+### Printer Component Management
+
+#### Implementation Details
+
+Printer components are managed through the `PrinterComponent` table, allowing users to track maintenance schedules and usage hours for various printer parts like nozzles, belts, and extruders.
+
+The system is designed to:
+
+1. Track component installation dates and usage hours
+2. Set replacement intervals for maintenance scheduling
+3. Update usage hours automatically when print jobs are recorded
+4. Provide visual indicators when components need replacement
+
+#### Key Methods in DatabaseHandler
+
+```python
+# Adding and retrieving components
+add_printer_component(printer_id, name, replacement_interval=None, notes=None)
+get_printer_components(printer_id=None)  # Get all components or filter by printer
+
+# Updating component information
+update_component_usage(component_id, additional_hours)  # Update usage hours only
+update_printer_component(component_id, name=None, replacement_interval=None,
+                        notes=None, installation_date=None, usage_hours=None)  # Update any field
+```
+
+#### Component Dialog Implementation
+
+The `ComponentDialog` class in `printer_tab.py` provides an interface for adding and editing components. It features:
+
+1. Dynamic field configuration based on whether it's an add or edit operation
+2. Calendar selector for installation dates
+3. Precise control over usage hours for maintenance tracking
+4. Input validation for all fields
+
+#### Inventory Status Algorithm
+
 ## UI Components
 
 ### Main Window

@@ -242,6 +242,19 @@ This feature is particularly useful when:
    -  Notes (optional)
 4. The system will track component usage based on print times
 
+### Editing Components
+
+1. Go to the "Components" tab in the Printer Management section
+2. Select the component you want to modify
+3. Click "Edit Component"
+4. You can edit the following information:
+   -  Component Name
+   -  Replacement Interval (in hours)
+   -  Installation Date
+   -  Usage Hours
+   -  Notes
+5. Click "Save Changes" to update the component information
+
 ### Maintenance Tracking
 
 -  Components due for replacement are highlighted in red

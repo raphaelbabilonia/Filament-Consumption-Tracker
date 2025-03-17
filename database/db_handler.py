@@ -387,7 +387,7 @@ class DatabaseHandler:
         """Get components for a specific printer or all components."""
         session = self.Session()
         try:
-            query = session.query(PrinterComponent)
+            query = session.query(PrinterComponent).options(joinedload(PrinterComponent.printer))
             if printer_id:
                 query = query.filter_by(printer_id=printer_id)
             return query.all()
@@ -405,6 +405,34 @@ class DatabaseHandler:
             component.usage_hours += additional_hours
             session.commit()
             return component.usage_hours
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    def update_printer_component(self, component_id, name=None, replacement_interval=None, notes=None, 
+                                installation_date=None, usage_hours=None):
+        """Update a printer component's information."""
+        session = self.Session()
+        try:
+            component = session.query(PrinterComponent).filter_by(id=component_id).first()
+            if not component:
+                raise ValueError(f"No component found with ID {component_id}")
+            
+            if name is not None:
+                component.name = name
+            if replacement_interval is not None:
+                component.replacement_interval = replacement_interval
+            if notes is not None:
+                component.notes = notes
+            if installation_date is not None:
+                component.installation_date = installation_date
+            if usage_hours is not None:
+                component.usage_hours = usage_hours
+                
+            session.commit()
+            return True
         except Exception as e:
             session.rollback()
             raise e
@@ -571,6 +599,152 @@ class DatabaseHandler:
                 joinedload(PrintJob.filament_3),
                 joinedload(PrintJob.filament_4)
             ).filter_by(id=job_id).first()
+        finally:
+            session.close()
+    
+    def update_print_job(self, job_id, project_name=None, printer_id=None, notes=None, 
+                        is_failed=None, failure_percentage=None):
+        """Update an existing print job.
+        
+        If a print is marked as failed, this will also restore the unused portion of filament back to inventory
+        and adjust the print duration based on the failure percentage.
+        
+        Args:
+            job_id: ID of the print job to update
+            project_name: New project name (optional)
+            printer_id: New printer ID (optional)
+            notes: New notes (optional)
+            is_failed: Whether the print failed (0 = success, 1 = failed)
+            failure_percentage: Percentage of completion when the print failed (0-100)
+        
+        Returns:
+            Dictionary with information about the updated job and restored filaments if applicable
+        """
+        session = self.Session()
+        try:
+            job = session.query(PrintJob).filter_by(id=job_id).first()
+            if not job:
+                raise ValueError(f"No print job found with ID {job_id}")
+            
+            # Track changes for return value
+            update_info = {'id': job_id, 'project_name': job.project_name}
+            restored_filaments = []
+            
+            # Update basic fields if provided
+            if project_name is not None:
+                job.project_name = project_name
+                update_info['project_name'] = project_name
+                
+            if printer_id is not None:
+                job.printer_id = printer_id
+                
+            if notes is not None:
+                job.notes = notes
+            
+            # Handle failed print status
+            # Check if we're marking a previously successful print as failed
+            if is_failed == 1 and job.is_failed == 0 and failure_percentage is not None:
+                # This is a newly failed print - need to restore filament and adjust duration
+                job.is_failed = 1
+                job.failure_percentage = failure_percentage
+                
+                # Calculate how much filament to restore for each used filament
+                # If we failed at X%, then we restore (100-X)% of the filament
+                restore_factor = (100 - failure_percentage) / 100.0
+                
+                # Store original duration for reporting
+                original_duration = job.duration
+                
+                # Adjust duration based on failure percentage
+                # If failed at X%, then actual duration is X% of original
+                adjusted_duration = job.duration * (failure_percentage / 100.0)
+                job.duration = adjusted_duration
+                
+                # Track time adjustment for reporting
+                update_info['original_duration'] = original_duration
+                update_info['adjusted_duration'] = adjusted_duration
+                update_info['time_saved'] = original_duration - adjusted_duration
+                
+                # Restore primary filament
+                if job.filament_id and job.filament_used:
+                    amount_to_restore = job.filament_used * restore_factor
+                    filament = session.query(Filament).filter_by(id=job.filament_id).first()
+                    if filament:
+                        filament.quantity_remaining += amount_to_restore
+                        restored_filaments.append({
+                            'filament_id': job.filament_id,
+                            'brand': filament.brand,
+                            'color': filament.color,
+                            'type': filament.type,
+                            'restored': amount_to_restore
+                        })
+                
+                # Restore secondary filaments if they exist
+                if job.filament_id_2 and job.filament_used_2:
+                    amount_to_restore = job.filament_used_2 * restore_factor
+                    filament2 = session.query(Filament).filter_by(id=job.filament_id_2).first()
+                    if filament2:
+                        filament2.quantity_remaining += amount_to_restore
+                        restored_filaments.append({
+                            'filament_id': job.filament_id_2,
+                            'brand': filament2.brand,
+                            'color': filament2.color,
+                            'type': filament2.type,
+                            'restored': amount_to_restore
+                        })
+                
+                if job.filament_id_3 and job.filament_used_3:
+                    amount_to_restore = job.filament_used_3 * restore_factor
+                    filament3 = session.query(Filament).filter_by(id=job.filament_id_3).first()
+                    if filament3:
+                        filament3.quantity_remaining += amount_to_restore
+                        restored_filaments.append({
+                            'filament_id': job.filament_id_3,
+                            'brand': filament3.brand,
+                            'color': filament3.color,
+                            'type': filament3.type,
+                            'restored': amount_to_restore
+                        })
+                
+                if job.filament_id_4 and job.filament_used_4:
+                    amount_to_restore = job.filament_used_4 * restore_factor
+                    filament4 = session.query(Filament).filter_by(id=job.filament_id_4).first()
+                    if filament4:
+                        filament4.quantity_remaining += amount_to_restore
+                        restored_filaments.append({
+                            'filament_id': job.filament_id_4,
+                            'brand': filament4.brand,
+                            'color': filament4.color,
+                            'type': filament4.type,
+                            'restored': amount_to_restore
+                        })
+                
+                update_info['restored_filaments'] = restored_filaments
+                update_info['total_restored'] = sum(item['restored'] for item in restored_filaments)
+                update_info['is_failed'] = True
+                update_info['failure_percentage'] = failure_percentage
+            
+            # If marking a failed print as successful, don't do anything with the filament
+            # as that would be too complex to track (the filament has already been adjusted)
+            elif is_failed == 0 and job.is_failed == 1:
+                job.is_failed = 0
+                job.failure_percentage = None
+                update_info['is_failed'] = False
+                
+            # Just updating the failure percentage without changing the failed status
+            elif is_failed == 1 and job.is_failed == 1 and failure_percentage is not None:
+                # Already a failed print, just update the percentage
+                job.failure_percentage = failure_percentage
+                update_info['is_failed'] = True
+                update_info['failure_percentage'] = failure_percentage
+            
+            session.commit()
+            return update_info
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Error in update_print_job: {str(e)}")
+            raise e
         finally:
             session.close()
     
@@ -1024,5 +1198,81 @@ class DatabaseHandler:
             return session.query(FilamentLinkGroup).options(
                 joinedload(FilamentLinkGroup.filament_links)
             ).filter_by(id=group_id).first()
+        finally:
+            session.close()
+
+    def update_full_print_job(self, job_id, date=None, duration=None, 
+                       filament_id=None, filament_used=None,
+                       filament_id_2=None, filament_used_2=None,
+                       filament_id_3=None, filament_used_3=None,
+                       filament_id_4=None, filament_used_4=None):
+        """Update all fields of an existing print job except for failure status.
+        
+        This method updates detailed information about a print job but does not handle
+        the filament restoration logic for failed prints, which is handled separately
+        by the update_print_job method.
+        
+        Args:
+            job_id: ID of the print job to update
+            date: New date/time for the print job
+            duration: New duration in hours
+            filament_id: Primary filament ID
+            filament_used: Amount of primary filament used
+            filament_id_2: Secondary filament 1 ID
+            filament_used_2: Amount of secondary filament 1 used
+            filament_id_3: Secondary filament 2 ID
+            filament_used_3: Amount of secondary filament 2 used
+            filament_id_4: Secondary filament 3 ID
+            filament_used_4: Amount of secondary filament 3 used
+            
+        Returns:
+            Dictionary with information about the updated job
+        """
+        session = self.Session()
+        try:
+            job = session.query(PrintJob).filter_by(id=job_id).first()
+            if not job:
+                raise ValueError(f"No print job found with ID {job_id}")
+            
+            # Update job fields if provided
+            if date is not None:
+                job.date = date
+                
+            if duration is not None:
+                job.duration = duration
+            
+            # Update filament fields if provided
+            if filament_id is not None:
+                job.filament_id = filament_id
+                
+            if filament_used is not None:
+                job.filament_used = filament_used
+            
+            # Update secondary filament fields if provided
+            if filament_id_2 is not None:
+                job.filament_id_2 = filament_id_2
+                
+            if filament_used_2 is not None:
+                job.filament_used_2 = filament_used_2
+                
+            if filament_id_3 is not None:
+                job.filament_id_3 = filament_id_3
+                
+            if filament_used_3 is not None:
+                job.filament_used_3 = filament_used_3
+                
+            if filament_id_4 is not None:
+                job.filament_id_4 = filament_id_4
+                
+            if filament_used_4 is not None:
+                job.filament_used_4 = filament_used_4
+            
+            session.commit()
+            return {'id': job_id, 'updated': True}
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Error in update_full_print_job: {str(e)}")
+            raise e
         finally:
             session.close()

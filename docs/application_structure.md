@@ -128,6 +128,8 @@ The UI is organized into tabs, each handling a specific feature set:
 -  Manages printer components and maintenance
 -  Tracks component replacement schedules
 -  Records printer usage statistics
+-  Provides complete component editing functionality
+-  Supports resetting usage hours after maintenance
 
 #### Print Job Tab (`print_job_tab.py`)
 

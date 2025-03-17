@@ -84,7 +84,7 @@ class PrinterComponent(Base):
     printer = relationship("Printer", back_populates="components")
     
     def __repr__(self):
-        return f"<PrinterComponent(name='{self.name}', printer='{self.printer.name}')>"
+        return f"<PrinterComponent(name='{self.name}', printer_id={self.printer_id})>"
 
 
 class PrintJob(Base):
@@ -99,6 +99,10 @@ class PrintJob(Base):
     filament_used = Column(Float, nullable=False)  # in grams
     duration = Column(Float, nullable=False)  # in hours
     notes = Column(Text)
+    
+    # For tracking failed prints
+    is_failed = Column(Integer, default=0)  # Using Integer instead of Boolean for SQLite compatibility
+    failure_percentage = Column(Float, nullable=True)  # At what percentage the print failed
     
     # For multicolor prints (secondary filaments)
     filament_id_2 = Column(Integer, ForeignKey('filaments.id'), nullable=True)

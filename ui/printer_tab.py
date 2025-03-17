@@ -9,21 +9,33 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QColor
 from PyQt5.QtCore import pyqtSignal
+import datetime
 
 from database.db_handler import DatabaseHandler
 
 class ComponentDialog(QDialog):
     """Dialog for adding printer components."""
     
-    def __init__(self, parent=None, printer_id=None):
-        """Initialize component dialog."""
+    def __init__(self, parent=None, printer_id=None, component_data=None):
+        """Initialize component dialog.
+        
+        Args:
+            parent: Parent widget
+            printer_id: ID of the printer for the component
+            component_data: Optional dictionary with component data for editing
+        """
         super().__init__(parent)
         self.printer_id = printer_id
+        self.component_data = component_data
         self.setup_ui()
         
     def setup_ui(self):
         """Setup the dialog UI."""
-        self.setWindowTitle("Add Printer Component")
+        if self.component_data:
+            self.setWindowTitle("Edit Printer Component")
+        else:
+            self.setWindowTitle("Add Printer Component")
+            
         self.setMinimumWidth(300)
         
         layout = QVBoxLayout()
@@ -32,26 +44,56 @@ class ComponentDialog(QDialog):
         
         # Component name
         self.name_input = QLineEdit()
+        if self.component_data and 'name' in self.component_data:
+            self.name_input.setText(self.component_data.get('name', ''))
         form_layout.addRow("Component Name:", self.name_input)
         
         # Replacement interval (hours)
         self.interval_input = QSpinBox()
         self.interval_input.setRange(0, 10000)
-        self.interval_input.setValue(500)  # Default value
+        if self.component_data and 'interval' in self.component_data:
+            self.interval_input.setValue(self.component_data.get('interval', 500))
+        else:
+            self.interval_input.setValue(500)  # Default value
         self.interval_input.setSuffix(" hours")
         form_layout.addRow("Replacement Interval:", self.interval_input)
+        
+        # Usage hours
+        if self.component_data and 'usage_hours' in self.component_data:
+            self.usage_hours_input = QDoubleSpinBox()
+            self.usage_hours_input.setRange(0, 100000)
+            self.usage_hours_input.setDecimals(1)
+            self.usage_hours_input.setValue(self.component_data.get('usage_hours', 0.0))
+            self.usage_hours_input.setSuffix(" hours")
+            form_layout.addRow("Usage Hours:", self.usage_hours_input)
+        
+        # Installation date
+        self.date_input = QDateEdit()
+        self.date_input.setCalendarPopup(True)
+        if self.component_data and 'installation_date' in self.component_data:
+            qdate = QDate.fromString(self.component_data.get('installation_date', ''), "yyyy-MM-dd")
+            self.date_input.setDate(qdate)
+        else:
+            self.date_input.setDate(QDate.currentDate())
+        form_layout.addRow("Installation Date:", self.date_input)
         
         # Notes
         self.notes_input = QTextEdit()
         self.notes_input.setPlaceholderText("Optional notes about this component...")
         self.notes_input.setMaximumHeight(100)
+        if self.component_data and 'notes' in self.component_data:
+            self.notes_input.setText(self.component_data.get('notes', ''))
         form_layout.addRow("Notes:", self.notes_input)
         
         # Button layout
         button_layout = QHBoxLayout()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        self.add_button = QPushButton("Add Component")
+        
+        if self.component_data:
+            self.add_button = QPushButton("Save Changes")
+        else:
+            self.add_button = QPushButton("Add Component")
         self.add_button.clicked.connect(self.accept)
         
         button_layout.addWidget(self.cancel_button)
@@ -64,11 +106,18 @@ class ComponentDialog(QDialog):
         
     def get_data(self):
         """Get the component data from the form."""
-        return {
+        data = {
             'name': self.name_input.text(),
             'interval': self.interval_input.value(),
-            'notes': self.notes_input.toPlainText()
+            'notes': self.notes_input.toPlainText(),
+            'installation_date': self.date_input.date().toString("yyyy-MM-dd")
         }
+        
+        # Only include usage_hours if it's an edit dialog
+        if self.component_data and hasattr(self, 'usage_hours_input'):
+            data['usage_hours'] = self.usage_hours_input.value()
+            
+        return data
 
 
 class PrinterDialog(QDialog):
@@ -236,18 +285,24 @@ class PrinterTab(QWidget):
         components_layout.addWidget(QLabel("Printer Components:"))
         components_layout.addWidget(self.component_table)
         
-        # Component action buttons
+        # Component buttons
         component_button_layout = QHBoxLayout()
         
-        self.reset_usage_button = QPushButton("Reset Usage")
-        self.reset_usage_button.clicked.connect(self.reset_component_usage)
+        self.add_component_button = QPushButton("Add Component")
+        self.add_component_button.clicked.connect(self.add_component)
+        component_button_layout.addWidget(self.add_component_button)
+        
+        self.edit_component_button = QPushButton("Edit Component")
+        self.edit_component_button.clicked.connect(self.edit_component)
+        component_button_layout.addWidget(self.edit_component_button)
+        
+        self.reset_component_button = QPushButton("Reset Usage")
+        self.reset_component_button.clicked.connect(self.reset_component_usage)
+        component_button_layout.addWidget(self.reset_component_button)
         
         self.remove_component_button = QPushButton("Remove Component")
         self.remove_component_button.clicked.connect(self.remove_component)
-        
-        component_button_layout.addWidget(self.reset_usage_button)
         component_button_layout.addWidget(self.remove_component_button)
-        component_button_layout.addStretch()
         
         components_layout.addLayout(component_button_layout)
         components_widget.setLayout(components_layout)
@@ -460,6 +515,68 @@ class PrinterTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to add component: {str(e)}")
     
+    def edit_component(self):
+        """Edit the selected component."""
+        selected_rows = self.component_table.selectedItems()
+        if not selected_rows:
+            QMessageBox.information(self, "No Selection", "Please select a component to edit.")
+            return
+            
+        # Get the component ID from the first column of the selected row
+        row = self.component_table.currentRow()
+        component_id = int(self.component_table.item(row, 0).text())
+        
+        # Get current component info
+        try:
+            # Get all components
+            components = self.db_handler.get_printer_components()
+            component = None
+            
+            # Find the selected component
+            for comp in components:
+                if comp.id == component_id:
+                    component = comp
+                    break
+                    
+            if not component:
+                QMessageBox.warning(self, "Component Not Found", "Selected component not found in database.")
+                return
+                
+            # Create component data dictionary
+            component_data = {
+                'id': component.id,
+                'name': component.name,
+                'interval': component.replacement_interval,
+                'usage_hours': component.usage_hours,
+                'notes': component.notes,
+                'installation_date': component.installation_date.strftime("%Y-%m-%d") if component.installation_date else None
+            }
+            
+            # Open dialog for editing
+            dialog = ComponentDialog(self, component.printer_id, component_data)
+            if dialog.exec_():
+                updated_data = dialog.get_data()
+                
+                # Convert installation date from string to datetime
+                installation_date = datetime.datetime.strptime(updated_data['installation_date'], "%Y-%m-%d")
+                
+                try:
+                    self.db_handler.update_printer_component(
+                        component_id=component_id,
+                        name=updated_data['name'],
+                        replacement_interval=updated_data['interval'],
+                        notes=updated_data['notes'],
+                        installation_date=installation_date,
+                        usage_hours=updated_data.get('usage_hours')
+                    )
+                    self.load_components()
+                    QMessageBox.information(self, "Success", "Component updated successfully!")
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to update component: {str(e)}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load component data: {str(e)}")
+    
     def reset_component_usage(self):
         """Reset the usage hours for a component."""
         selected_rows = self.component_table.selectedItems()
@@ -503,7 +620,7 @@ class PrinterTab(QWidget):
             
         row = selected_items[0].row()
         component_id = int(self.component_table.item(row, 0).text())
-        component_name = self.component_table.item(row, 1).text()
+        component_name = self.component_table.item(row, 2).text()  # Column 2 is the component name
         
         # Confirm deletion
         reply = QMessageBox.question(
