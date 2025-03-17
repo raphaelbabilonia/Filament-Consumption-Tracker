@@ -74,6 +74,10 @@ class ReportsTab(QWidget):
         self.component_status_tab = self.create_component_status_tab()
         self.tab_widget.addTab(self.component_status_tab, "Component Status")
         
+        # Failed prints tab
+        self.failed_prints_tab = self.create_failed_prints_tab()
+        self.tab_widget.addTab(self.failed_prints_tab, "Failed Prints")
+        
         # Connect tab changed signal to refresh data
         self.tab_widget.currentChanged.connect(self.tab_changed)
         
@@ -104,6 +108,8 @@ class ReportsTab(QWidget):
             self.refresh_cost_analysis()
         elif index == 4:  # Component Status
             self.refresh_component_status()
+        elif index == 5:  # Failed Prints
+            self.refresh_failed_prints()
     
     def create_usage_summary_tab(self):
         """Create the usage summary tab."""
@@ -406,6 +412,85 @@ class ReportsTab(QWidget):
         layout.addWidget(description)
         layout.addWidget(self.component_table)
         layout.addLayout(refresh_layout)
+        
+        tab.setLayout(layout)
+        return tab
+    
+    def create_failed_prints_tab(self):
+        """Create the failed prints tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Controls for filtering and viewing options
+        control_box = QGroupBox("Failed Prints Controls")
+        controls_layout = QFormLayout()
+        
+        # Date range selection
+        self.failed_prints_start_date = QDateEdit()
+        self.failed_prints_start_date.setDate(QDate.currentDate().addMonths(-3))  # Default to 3 months ago
+        self.failed_prints_start_date.setCalendarPopup(True)
+        controls_layout.addRow("Start Date:", self.failed_prints_start_date)
+        
+        self.failed_prints_end_date = QDateEdit()
+        self.failed_prints_end_date.setDate(QDate.currentDate())  # Default to today
+        self.failed_prints_end_date.setCalendarPopup(True)
+        controls_layout.addRow("End Date:", self.failed_prints_end_date)
+        
+        # Chart type selection
+        self.failed_prints_view_type = QComboBox()
+        self.failed_prints_view_type.addItems(["By Printer", "By Filament Type", "By Filament Color", "By Filament Brand"])
+        controls_layout.addRow("Group By:", self.failed_prints_view_type)
+        
+        # Generate report button
+        self.failed_prints_generate_button = QPushButton("Generate Report")
+        self.failed_prints_generate_button.clicked.connect(self.refresh_failed_prints)
+        controls_layout.addRow("", self.failed_prints_generate_button)
+        
+        control_box.setLayout(controls_layout)
+        
+        # Chart area
+        self.failed_prints_canvas = MplCanvas(width=8, height=4)
+        
+        # Create a frame for the canvas
+        canvas_frame = QFrame()
+        canvas_frame.setFrameShape(QFrame.StyledPanel)
+        canvas_frame.setFrameShadow(QFrame.Sunken)
+        canvas_layout = QVBoxLayout(canvas_frame)
+        canvas_layout.addWidget(self.failed_prints_canvas)
+        
+        # Failed Prints table
+        self.failed_prints_table = QTableWidget()
+        self.failed_prints_table.setColumnCount(7)
+        self.failed_prints_table.setHorizontalHeaderLabels([
+            "Printer", "Print Date", "Project", "Filament", "Duration (h)", "Failed At %", "Wasted Material (g)"
+        ])
+        self.failed_prints_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # Add summary statistics
+        summary_box = QGroupBox("Summary")
+        summary_layout = QFormLayout()
+        
+        self.total_fails_label = QLabel("0")
+        summary_layout.addRow("Total Failed Prints:", self.total_fails_label)
+        
+        self.total_wasted_material_label = QLabel("0g")
+        summary_layout.addRow("Total Wasted Material:", self.total_wasted_material_label)
+        
+        self.avg_fail_percentage_label = QLabel("0%")
+        summary_layout.addRow("Average Fail Percentage:", self.avg_fail_percentage_label)
+        
+        summary_box.setLayout(summary_layout)
+        
+        # Split the view with chart on top and table below
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(canvas_frame)
+        splitter.addWidget(self.failed_prints_table)
+        splitter.setSizes([400, 300])  # Set initial sizes
+        
+        # Add widgets to layout
+        layout.addWidget(control_box)
+        layout.addWidget(splitter)
+        layout.addWidget(summary_box)
         
         tab.setLayout(layout)
         return tab
@@ -1107,79 +1192,203 @@ class ReportsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to generate cost analysis report: {str(e)}")
 
     def adjust_for_portrait(self, is_portrait):
-        """Adjust the layout based on screen orientation."""
+        """Adjust the UI layout for portrait or landscape orientation."""
         self.is_portrait = is_portrait
         
-        if is_portrait:
-            # Vertical monitor adjustments
+        # Adjust each tab's layout as needed
+        for i in range(self.tab_widget.count()):
+            # Get the current tab
+            tab = self.tab_widget.widget(i)
             
-            # Change tab orientation if subtabs exist
-            if hasattr(self, 'tab_widget'):
-                self.tab_widget.setTabPosition(QTabWidget.West)  # Tabs on the left in portrait
-            elif hasattr(self, 'tabs'):
-                self.tabs.setTabPosition(QTabWidget.West)  # Tabs on the left in portrait
-            
-            # Adjust any splitters to vertical orientation
-            if hasattr(self, 'summary_splitter'):
-                self.summary_splitter.setOrientation(Qt.Vertical)
-            
-            # Optimize report table column widths
-            for table_attr in ['summary_table', 'inventory_table', 'printer_table', 'cost_table',
-                              'filament_usage_table', 'printer_usage_table']:
-                if hasattr(self, table_attr):
-                    table = getattr(self, table_attr)
-                    header = table.horizontalHeader()
-                    header.resizeSections(QHeaderView.ResizeToContents)
-                    
-                    # Make ID columns narrower
-                    if table.columnCount() > 0:
-                        header.setSectionResizeMode(0, QHeaderView.Fixed)
-                        header.resizeSection(0, 40)  # ID column
-                    
-                    # Make date columns fixed width
-                    for i in range(table.columnCount()):
-                        if table.horizontalHeaderItem(i) and "Date" in table.horizontalHeaderItem(i).text():
-                            header.setSectionResizeMode(i, QHeaderView.Fixed)
-                            header.resizeSection(i, 80)
-                    
-                    # Make numeric columns narrower
-                    for i in range(table.columnCount()):
-                        if table.horizontalHeaderItem(i) and any(term in table.horizontalHeaderItem(i).text() for term in ["Amount", "Cost", "Weight", "Price", "Quantity", "Usage"]):
-                            header.setSectionResizeMode(i, QHeaderView.Fixed)
-                            header.resizeSection(i, 70)
-            
-            # Collapse control panels to save vertical space
-            for panel_attr in ['controls_group', 'filter_group', 'date_filter_group']:
-                if hasattr(self, panel_attr):
-                    panel = getattr(self, panel_attr)
-                    panel.setMaximumHeight(150)
-                    
-        else:
-            # Reset to landscape mode (horizontal monitor)
-            
-            # Reset tab orientation
-            if hasattr(self, 'tab_widget'):
-                self.tab_widget.setTabPosition(QTabWidget.North)  # Tabs on top in landscape
-            elif hasattr(self, 'tabs'): 
-                self.tabs.setTabPosition(QTabWidget.North)  # Tabs on top in landscape
+            # Skip tabs that don't have layout adjustment
+            if not hasattr(tab, 'layout'):
+                continue
                 
-            # Reset splitter orientation
-            if hasattr(self, 'summary_splitter'):
-                self.summary_splitter.setOrientation(Qt.Vertical)  # Usually vertical even in landscape
+            # Get the splitter widgets if they exist
+            splitters = []
+            for child in tab.findChildren(QSplitter):
+                splitters.append(child)
             
-            # Reset table columns to default
-            for table_attr in ['summary_table', 'inventory_table', 'printer_table', 'cost_table',
-                              'filament_usage_table', 'printer_usage_table']:
-                if hasattr(self, table_attr):
-                    table = getattr(self, table_attr)
-                    header = table.horizontalHeader()
-                    for i in range(table.columnCount()):
-                        header.setSectionResizeMode(i, QHeaderView.Interactive)
-                    header.resizeSections(QHeaderView.ResizeToContents)
+            # Adjust splitter orientation
+            for splitter in splitters:
+                if is_portrait:
+                    splitter.setOrientation(Qt.Vertical)
+                else:
+                    splitter.setOrientation(Qt.Horizontal)
+                    
+        # Force layout update
+        self.tab_widget.currentWidget().layout().update()
+        
+    def refresh_failed_prints(self):
+        """Refresh the failed prints report."""
+        try:
+            # Get date range for filtering
+            start_date = self.failed_prints_start_date.date().toPyDate()
+            end_date = self.failed_prints_end_date.date().toPyDate()
             
-            # Reset collapsed panels
-            for panel_attr in ['controls_group', 'filter_group', 'date_filter_group']:
-                if hasattr(self, panel_attr):
-                    panel = getattr(self, panel_attr)
-                    panel.setMaximumHeight(16777215)  # Default/unlimited
+            # Add time to end date to include the entire day
+            end_date = datetime.datetime.combine(end_date, datetime.time(23, 59, 59))
+            
+            # Get all print jobs that failed within the date range
+            print_jobs = self.db_handler.get_failed_print_jobs(
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            # Clear the table
+            self.failed_prints_table.setRowCount(0)
+            
+            # Reset summary statistics
+            total_fails = 0
+            total_wasted_material = 0
+            total_fail_percentage = 0
+            
+            # Exit if no failed prints
+            if not print_jobs:
+                self.failed_prints_table.setRowCount(1)
+                no_data_item = QTableWidgetItem("No failed prints recorded in the selected date range")
+                no_data_item.setTextAlignment(Qt.AlignCenter)
+                self.failed_prints_table.setSpan(0, 0, 1, 7)
+                self.failed_prints_table.setItem(0, 0, no_data_item)
+                
+                # Update summary statistics
+                self.total_fails_label.setText("0")
+                self.total_wasted_material_label.setText("0g")
+                self.avg_fail_percentage_label.setText("0%")
+                
+                # Clear the chart
+                self.failed_prints_canvas.axes.clear()
+                self.failed_prints_canvas.axes.set_title("No Failed Prints Data")
+                self.failed_prints_canvas.draw()
+                return
+            
+            # Update total fails
+            total_fails = len(print_jobs)
+            self.total_fails_label.setText(str(total_fails))
+            
+            # Prepare data for chart
+            data = {}
+            category_type = self.failed_prints_view_type.currentText()
+            
+            # Prepare the table
+            self.failed_prints_table.setRowCount(len(print_jobs))
+            
+            # Fill the table and collect data for chart
+            for i, job in enumerate(print_jobs):
+                # Printer name
+                printer_name = job.printer.name if job.printer else "N/A"
+                printer_item = QTableWidgetItem(printer_name)
+                self.failed_prints_table.setItem(i, 0, printer_item)
+                
+                # Print date
+                date_str = job.date.strftime("%d/%m/%y %H:%M") if job.date else "N/A"
+                date_item = QTableWidgetItem(date_str)
+                self.failed_prints_table.setItem(i, 1, date_item)
+                
+                # Project name
+                project_item = QTableWidgetItem(job.project_name)
+                self.failed_prints_table.setItem(i, 2, project_item)
+                
+                # Filament info
+                filament_text = f"{job.filament.brand} {job.filament.color} {job.filament.type}" if job.filament else "N/A"
+                filament_item = QTableWidgetItem(filament_text)
+                self.failed_prints_table.setItem(i, 3, filament_item)
+                
+                # Duration
+                duration_item = QTableWidgetItem(f"{job.duration:.2f}")
+                self.failed_prints_table.setItem(i, 4, duration_item)
+                
+                # Failure percentage
+                failure_percentage = job.failure_percentage if job.failure_percentage is not None else 0
+                failure_item = QTableWidgetItem(f"{failure_percentage:.1f}%")
+                failure_item.setBackground(QColor(255, 200, 200))  # Light red background
+                self.failed_prints_table.setItem(i, 5, failure_item)
+                
+                # Calculate wasted material based on failure percentage
+                wasted_material = job.filament_used * (failure_percentage / 100)
+                if job.filament_used_2 and job.filament_id_2:
+                    wasted_material += job.filament_used_2 * (failure_percentage / 100)
+                if job.filament_used_3 and job.filament_id_3:
+                    wasted_material += job.filament_used_3 * (failure_percentage / 100)
+                if job.filament_used_4 and job.filament_id_4:
+                    wasted_material += job.filament_used_4 * (failure_percentage / 100)
+                
+                wasted_item = QTableWidgetItem(f"{wasted_material:.2f}")
+                self.failed_prints_table.setItem(i, 6, wasted_item)
+                
+                # Update summary statistics
+                total_wasted_material += wasted_material
+                total_fail_percentage += failure_percentage
+                
+                # Collect data for the chart based on selected view type
+                if category_type == "By Printer":
+                    category = printer_name
+                elif category_type == "By Filament Type":
+                    category = job.filament.type if job.filament else "Unknown"
+                elif category_type == "By Filament Color":
+                    category = job.filament.color if job.filament else "Unknown"
+                elif category_type == "By Filament Brand":
+                    category = job.filament.brand if job.filament else "Unknown"
+                else:
+                    category = "Unknown"
+                
+                # Count failures by category
+                if category in data:
+                    data[category] += 1
+                else:
+                    data[category] = 1
+            
+            # Update summary statistics
+            self.total_wasted_material_label.setText(f"{total_wasted_material:.2f}g")
+            avg_fail_percentage = total_fail_percentage / total_fails if total_fails > 0 else 0
+            self.avg_fail_percentage_label.setText(f"{avg_fail_percentage:.1f}%")
+            
+            # Color all rows in the failed prints table
+            for row in range(self.failed_prints_table.rowCount()):
+                for col in range(self.failed_prints_table.columnCount()):
+                    if col != 5:  # Skip failure percentage column which is already colored
+                        item = self.failed_prints_table.item(row, col)
+                        if item:
+                            item.setBackground(QColor(255, 230, 230))  # Lighter red for other columns
+            
+            # Create chart
+            self.failed_prints_canvas.axes.clear()
+            
+            if data:
+                # Sort data by number of failures (descending)
+                sorted_data = sorted(data.items(), key=lambda x: x[1], reverse=True)
+                categories = [item[0] for item in sorted_data]
+                values = [item[1] for item in sorted_data]
+                
+                # Create bar chart
+                bars = self.failed_prints_canvas.axes.bar(categories, values, color='salmon')
+                
+                # Add data labels on top of bars
+                for bar in bars:
+                    height = bar.get_height()
+                    self.failed_prints_canvas.axes.text(
+                        bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.0f}',
+                        ha='center', va='bottom'
+                    )
+                
+                # Set title and labels
+                self.failed_prints_canvas.axes.set_title(f"Failed Prints {category_type}")
+                self.failed_prints_canvas.axes.set_ylabel("Number of Failures")
+                
+                # Rotate x-axis labels for better readability
+                self.failed_prints_canvas.axes.set_xticklabels(categories, rotation=45, ha='right')
+                
+                # Adjust layout
+                self.failed_prints_canvas.fig.tight_layout()
+            else:
+                self.failed_prints_canvas.axes.set_title("No Failed Prints Data")
+            
+            # Draw the chart
+            self.failed_prints_canvas.draw()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load failed prints data: {str(e)}")
+            import traceback
+            traceback.print_exc()
                     

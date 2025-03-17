@@ -587,6 +587,46 @@ class DatabaseHandler:
         finally:
             session.close()
     
+    def get_failed_print_jobs(self, printer_id=None, filament_id=None, start_date=None, end_date=None):
+        """Get all failed print jobs with optional filtering."""
+        session = self.Session()
+        try:
+            # Use joinedload to eagerly load the relationships to prevent lazy loading errors
+            query = session.query(PrintJob).options(
+                joinedload(PrintJob.filament),
+                joinedload(PrintJob.printer),
+                joinedload(PrintJob.filament_2),
+                joinedload(PrintJob.filament_3),
+                joinedload(PrintJob.filament_4)
+            ).filter(PrintJob.is_failed == 1)  # Filter for failed prints
+            
+            # Apply additional filters if provided
+            if printer_id:
+                query = query.filter_by(printer_id=printer_id)
+                
+            if filament_id:
+                # Filter for any of the filament columns containing this filament
+                query = query.filter(
+                    (PrintJob.filament_id == filament_id) |
+                    (PrintJob.filament_id_2 == filament_id) |
+                    (PrintJob.filament_id_3 == filament_id) |
+                    (PrintJob.filament_id_4 == filament_id)
+                )
+                
+            if start_date:
+                query = query.filter(PrintJob.date >= start_date)
+                
+            if end_date:
+                query = query.filter(PrintJob.date <= end_date)
+            
+            # Order by date, newest first
+            query = query.order_by(PrintJob.date.desc())
+            
+            # Execute the query and return all results
+            return query.all()
+        finally:
+            session.close()
+    
     def get_print_job_by_id(self, job_id):
         """Get a single print job by its ID."""
         session = self.Session()
