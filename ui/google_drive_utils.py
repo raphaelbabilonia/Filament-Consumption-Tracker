@@ -56,6 +56,7 @@ class GoogleDriveHandler(QObject):
         
         # Initialize service to None
         self.service = None
+        self._credentials = None  # Add credentials storage
         
         # For upload cancellation
         self._upload_cancelled = False
@@ -133,6 +134,7 @@ class GoogleDriveHandler(QObject):
                 
                 # Build the service
                 self.service = build('drive', 'v3', credentials=creds)
+                self._credentials = pickle.dumps(creds)  # Store serialized credentials
                 self.auth_completed.emit(True, "Authentication successful")
             
             except Exception as e:
@@ -156,6 +158,7 @@ class GoogleDriveHandler(QObject):
             
             # Build the service
             self.service = build('drive', 'v3', credentials=creds)
+            self._credentials = pickle.dumps(creds)  # Store serialized credentials
             self.auth_completed.emit(True, "Authentication successful")
             
         except Exception as e:
@@ -185,6 +188,9 @@ class GoogleDriveHandler(QObject):
             # Build upload request
             try:
                 # Get creds and service
+                if not self._credentials:
+                    raise AttributeError("No credentials available. Please authenticate first.")
+                
                 credentials = pickle.loads(self._credentials)
                 drive_service = build('drive', 'v3', credentials=credentials)
                 
@@ -199,8 +205,8 @@ class GoogleDriveHandler(QObject):
                 if not target_file_name:
                     target_file_name = os.path.basename(file_path)
                 
-                # Start progress tracking
-                QMetaObject.invokeMethod(self, '_start_timer', Qt.QueuedConnection)
+                # Start fake progress reporting
+                self.start_progress_timer.emit()
                 
                 # Create file metadata
                 file_metadata = {
@@ -249,14 +255,14 @@ class GoogleDriveHandler(QObject):
                     self.prune_old_backups(target_folder_id, max_backups)
                 
                 # Stop progress tracking
-                QMetaObject.invokeMethod(self, '_stop_timer', Qt.QueuedConnection)
+                self.stop_progress_timer.emit()
                 
                 # Emit completion signal
                 self.upload_completed.emit(True, file_id, f"File uploaded as {target_file_name}")
                 
             except Exception as e:
                 # Stop progress tracking
-                QMetaObject.invokeMethod(self, '_stop_timer', Qt.QueuedConnection)
+                self.stop_progress_timer.emit()
                 
                 # Emit error signal
                 self.upload_completed.emit(False, "", f"Upload failed: {str(e)}")

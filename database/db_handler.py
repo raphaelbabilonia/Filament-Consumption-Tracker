@@ -23,6 +23,7 @@ class DatabaseHandler:
                 
             db_path = os.path.join(app_folder, 'filament_tracker.db')
             
+        self.db_path = db_path  # Store the db_path as an attribute
         self.engine = create_engine(f'sqlite:///{db_path}')
         Base.metadata.create_all(self.engine)
         

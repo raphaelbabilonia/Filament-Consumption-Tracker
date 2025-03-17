@@ -413,43 +413,39 @@ class MainWindow(QMainWindow):
         
     def closeEvent(self, event):
         """Handle window close event."""
-        # Check if there are unsaved changes
+        # Simplify to just ask if the user wants to exit
+        reply = QMessageBox.question(
+            self, 'Exit Application',
+            'Are you sure you want to exit?',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.No:
+            event.ignore()
+            return
+            
+        # If unsaved changes exist, save them automatically
         if self.filament_tab.has_unsaved_changes() or \
            self.printer_tab.has_unsaved_changes() or \
            self.print_job_tab.has_unsaved_changes():
-            
-            reply = QMessageBox.question(
-                self, 'Unsaved Changes',
-                'You have unsaved changes. Do you want to save before exiting?',
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
-            
-            if reply == QMessageBox.Save:
-                # Save all changes
-                self.filament_tab.save_all_changes()
-                self.printer_tab.save_all_changes()
-                self.print_job_tab.save_all_changes()
-            elif reply == QMessageBox.Cancel:
-                event.ignore()
-                return
+            self.filament_tab.save_all_changes()
+            self.printer_tab.save_all_changes()
+            self.print_job_tab.save_all_changes()
         
         # Check if automatic sync is enabled
         if self.sync_settings.get("auto_sync_enabled", False) and \
            self.sync_settings.get("sync_frequency", "On application close") == "On application close":
             
             reply = QMessageBox.question(
-                self, 'Automatic Sync',
-                'Automatic sync is enabled. Do you want to sync with Google Drive before exiting?',
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                self, 'Sync to Drive',
+                'Do you want to sync with Google Drive before exiting?',
+                QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
             
             if reply == QMessageBox.Yes:
                 self.backup_to_drive_and_exit(event)
-                return
-            elif reply == QMessageBox.Cancel:
-                event.ignore()
                 return
         
         # If we get here, just accept the event and close
