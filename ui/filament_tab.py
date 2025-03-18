@@ -22,7 +22,12 @@ class FilamentDialog(QDialog):
         """Initialize filament dialog."""
         super().__init__(parent)
         self.filament_data = filament_data
+        self.db_handler = None
+        # Get database handler from parent
+        if parent and hasattr(parent, 'db_handler'):
+            self.db_handler = parent.db_handler
         self.setup_ui()
+        self.populate_dropdowns()
         
     def setup_ui(self):
         """Setup the dialog UI."""
@@ -63,6 +68,8 @@ class FilamentDialog(QDialog):
         self.quantity_input.setSuffix(" g")
         if self.filament_data and 'quantity_remaining' in self.filament_data:
             self.quantity_input.setValue(self.filament_data.get('quantity_remaining', 0))
+        else:
+            self.quantity_input.setValue(1000.0)  # Default to 1000g for new filaments
         form_layout.addRow("Quantity Remaining (g):", self.quantity_input)
         
         # Spool weight
@@ -71,6 +78,8 @@ class FilamentDialog(QDialog):
         self.spool_weight_input.setSuffix(" g")
         if self.filament_data and 'spool_weight' in self.filament_data:
             self.spool_weight_input.setValue(self.filament_data.get('spool_weight', 0))
+        else:
+            self.spool_weight_input.setValue(1000.0)  # Default to 1000g for new filaments
         form_layout.addRow("Spool Weight (g):", self.spool_weight_input)
         
         # Price
@@ -129,8 +138,47 @@ class FilamentDialog(QDialog):
         
         self.setLayout(layout)
         
+    def populate_dropdowns(self):
+        """Populate the dropdown boxes with existing values from the database."""
+        if not self.db_handler:
+            return
+            
+        # Get unique types, colors, and brands
+        types = self.db_handler.get_filament_types()
+        colors = self.db_handler.get_filament_colors()
+        brands = self.db_handler.get_filament_brands()
+        
+        # Add them to the respective combo boxes
+        current_type = self.type_combo.currentText()
+        self.type_combo.clear()
+        for filament_type in types:
+            if filament_type != current_type:  # Skip the current type as it's already added
+                self.type_combo.addItem(filament_type)
+        if current_type:
+            self.type_combo.setCurrentText(current_type)
+        
+        current_color = self.color_combo.currentText()
+        self.color_combo.clear()
+        for color in colors:
+            if color != current_color:  # Skip the current color as it's already added
+                self.color_combo.addItem(color)
+        if current_color:
+            self.color_combo.setCurrentText(current_color)
+        
+        current_brand = self.brand_combo.currentText()
+        self.brand_combo.clear()
+        for brand in brands:
+            if brand != current_brand:  # Skip the current brand as it's already added
+                self.brand_combo.addItem(brand)
+        if current_brand:
+            self.brand_combo.setCurrentText(current_brand)
+        
     def get_data(self):
         """Get the updated data."""
+        # Convert QDate to Python datetime
+        qt_date = self.date_input.date()
+        py_date = datetime.datetime(qt_date.year(), qt_date.month(), qt_date.day())
+        
         return {
             'type': self.type_combo.currentText(),
             'color': self.color_combo.currentText(),
@@ -138,7 +186,7 @@ class FilamentDialog(QDialog):
             'quantity_remaining': self.quantity_input.value(),
             'spool_weight': self.spool_weight_input.value(),
             'price': self.price_input.value(),
-            'purchase_date': self.date_input.date(),
+            'purchase_date': py_date,
             'spool_count': self.spool_count_input.value() if hasattr(self, 'spool_count_input') else 1
         }
 
@@ -1031,7 +1079,7 @@ class FilamentTab(QWidget):
                     color=filament_data.get('color', ''),
                     brand=filament_data.get('brand', ''),
                     spool_weight=filament_data.get('spool_weight', 0),
-                    quantity_remaining=filament_data.get('remaining_weight', 0),
+                    quantity_remaining=filament_data.get('quantity_remaining', 0),
                     price=filament_data.get('price', 0),
                     purchase_date=filament_data.get('purchase_date', None)
                 )
@@ -1068,7 +1116,7 @@ class FilamentTab(QWidget):
             'color': filament.color,
             'brand': filament.brand,
             'spool_weight': filament.spool_weight,
-            'remaining_weight': filament.quantity_remaining,  # Use quantity_remaining instead of remaining_weight
+            'quantity_remaining': filament.quantity_remaining,
             'price': filament.price,
             'purchase_date': filament.purchase_date
         }
@@ -1085,7 +1133,7 @@ class FilamentTab(QWidget):
                     color=updated_data.get('color', ''),
                     brand=updated_data.get('brand', ''),
                     spool_weight=updated_data.get('spool_weight', 0),
-                    quantity_remaining=updated_data.get('remaining_weight', 0),  # Map remaining_weight to quantity_remaining
+                    quantity_remaining=updated_data.get('quantity_remaining', 0),
                     price=updated_data.get('price', 0),
                     purchase_date=updated_data.get('purchase_date', None)
                 )
