@@ -1074,15 +1074,21 @@ class FilamentTab(QWidget):
         if dialog.exec_():
             filament_data = dialog.get_data()
             try:
-                self.db_handler.add_filament(
-                    filament_type=filament_data.get('type', ''),
-                    color=filament_data.get('color', ''),
-                    brand=filament_data.get('brand', ''),
-                    spool_weight=filament_data.get('spool_weight', 0),
-                    quantity_remaining=filament_data.get('quantity_remaining', 0),
-                    price=filament_data.get('price', 0),
-                    purchase_date=filament_data.get('purchase_date', None)
-                )
+                # Get the number of spools to add
+                spool_count = filament_data.get('spool_count', 1)
+                
+                # Add the filament multiple times based on spool count
+                for _ in range(spool_count):
+                    self.db_handler.add_filament(
+                        filament_type=filament_data.get('type', ''),
+                        color=filament_data.get('color', ''),
+                        brand=filament_data.get('brand', ''),
+                        spool_weight=filament_data.get('spool_weight', 0),
+                        quantity_remaining=filament_data.get('quantity_remaining', 0),
+                        price=filament_data.get('price', 0),
+                        purchase_date=filament_data.get('purchase_date', None)
+                    )
+                    
                 self.load_filaments()
                 self.load_aggregated_inventory()
                 self.load_inventory_status()
